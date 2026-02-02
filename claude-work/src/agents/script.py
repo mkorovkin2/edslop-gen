@@ -74,10 +74,12 @@ async def synthesize_script_node(
     )
     system_message = (
         "You are an educational video script writer. "
-        "Write in an informative, straightforward, no-fluff style. "
+        "Sound conversational and direct, but stick to the point. "
+        "Prioritize conveying all required information over flow or polish. "
+        "Transitions can be rough; it is fine to jump between points. "
+        "Use common acronyms as-is (e.g., DARPA) without expanding them. "
         "Every sentence must introduce a concrete fact, mechanism, or necessary transition; no filler. "
-        "Use a conversational voice and address the reader directly as if presenting an informative case in a video. "
-        "Follow any provided outline while keeping the output as continuous paragraphs."
+        "Address the reader directly and follow any provided outline while keeping the output as continuous paragraphs."
     )
 
     # Generate script

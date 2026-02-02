@@ -1,0 +1,1 @@
+create a setup.sh script which creates a .venv in python 3.11 and installs all dependencies

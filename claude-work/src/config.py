@@ -18,8 +18,8 @@ class Config(BaseSettings):
     model_name: str = Field(default="gpt-5.2", description="OpenAI model for generation")
 
     # Script Generation Limits
-    script_min_words: int = Field(default=200, ge=100, le=300, description="Minimum script word count")
-    script_max_words: int = Field(default=500, ge=300, le=1000, description="Maximum script word count")
+    script_min_words: int = Field(default=200, ge=50, le=300, description="Minimum script word count")
+    script_max_words: int = Field(default=500, ge=100, le=1000, description="Maximum script word count")
 
     # Image Collection Configuration
     images_min_total: int = Field(default=10, ge=5, le=100, description="Minimum total images to collect")

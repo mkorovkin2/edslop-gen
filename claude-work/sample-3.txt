@@ -1,0 +1,1 @@
+python -m src.main "the crypto secret network ($SCRT) is not really private. they say they are private but they are not"

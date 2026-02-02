@@ -1,0 +1,1 @@
+python -m src.main "zcash is a fed coin developed by the US and Israeli government. This should be from the perspective that IT IS LINKED. YOU SHOULD LOOK FOR EVIDENCE FOR THIS."

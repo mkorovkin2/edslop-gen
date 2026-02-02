@@ -97,8 +97,8 @@ Return ONLY a JSON array of query strings, like:
 
     # Step 3: Use LLM to synthesize research into structured summary
     research_text = "\n\n".join([
-        f"Source {i+1} - {r.get('title', 'Untitled')}:\n{r.get('content', '')[:500]}"
-        for i, r in enumerate(all_results[:10])  # Limit to top 10 sources
+        f"Source {i+1} - {r.get('title', 'Untitled')}:\n{r.get('content', '')}"
+        for i, r in enumerate(all_results)
     ])
 
     synthesis_prompt = f"""
@@ -113,7 +113,7 @@ for creating an educational video script.
 Return a concise summary (200-300 words) covering the most important points.
 """
 
-    logger.info("Research: synthesizing summary from %d sources", min(len(all_results), 10))
+    logger.info("Research: synthesizing summary from %d sources", len(all_results))
     synthesis = await openai_client.generate(
         synthesis_prompt,
         max_tokens=800,

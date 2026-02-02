@@ -55,7 +55,7 @@ For each section, generate {images_per_section} diverse, specific image search q
 relevant visual aids (diagrams, illustrations, photos, charts).
 
 Script sections:
-{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text'][:200]} for s in sections], indent=2)}
+{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections], indent=2)}
 
 Return a JSON object mapping section_id to list of queries:
 {{
@@ -191,7 +191,7 @@ async def map_images_node(
     # Build image descriptions
     image_descriptions = [
         f"Image {i}: {img.get('description', 'No description')} (from query: {img.get('query_used', 'unknown')})"
-        for i, img in enumerate(images[:50])  # Limit to first 50 for token management
+        for i, img in enumerate(images)
     ]
 
     outline_block = f"\nOutline (for context):\n{outline}\n" if outline else ""
@@ -201,7 +201,7 @@ Map the most relevant images to each script section.
 {outline_block}
 
 Script sections:
-{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text'][:300]} for s in sections], indent=2)}
+{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections], indent=2)}
 
 Available images:
 {chr(10).join(image_descriptions)}

@@ -60,9 +60,9 @@ async def synthesize_script_node(
     sources_xml = "\n".join([
         "<source>"
         f"<title>{r.get('title', 'Source')}</title>"
-        f"<excerpt>{r.get('content', '')[:300]}</excerpt>"
+        f"<excerpt>{r.get('content', '')}</excerpt>"
         "</source>"
-        for r in state['research_data'][:8]  # Limit to 8 sources
+        for r in state['research_data']
     ])
     word_count_xml = f"<word_count><min>{min_words}</min><max>{max_words}</max></word_count>"
     retry_notice_xml = (

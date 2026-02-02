@@ -38,12 +38,6 @@ async def synthesize_script_node(
     # Get research synthesis if available
     synthesis = state.get('metadata', {}).get('research_synthesis', '')
 
-    # Build research context
-    research_text = "\n\n".join([
-        f"- {r.get('title', 'Source')}: {r.get('content', '')[:300]}"
-        for r in state['research_data'][:8]  # Limit to 8 sources
-    ])
-
     # Get current retry count
     retry_count = state.get('retry_counts', {}).get('synthesize_script', 0)
 
@@ -59,26 +53,54 @@ async def synthesize_script_node(
         len(synthesis or "")
     )
 
+    topic_xml = f"<topic>{state['topic']}</topic>"
+    research_summary_xml = f"<research_summary>{synthesis}</research_summary>"
+    sources_xml = "\n".join([
+        "<source>"
+        f"<title>{r.get('title', 'Source')}</title>"
+        f"<excerpt>{r.get('content', '')[:300]}</excerpt>"
+        "</source>"
+        for r in state['research_data'][:8]  # Limit to 8 sources
+    ])
+    word_count_xml = f"<word_count><min>{min_words}</min><max>{max_words}</max></word_count>"
+    retry_notice_xml = (
+        "<retry_notice>"
+        "<message>Previous attempt had incorrect word count. This is a retry; comply with the word count requirements.</message>"
+        f"<attempt>{retry_count + 1}</attempt>"
+        "</retry_notice>"
+        if retry_count > 0 else ""
+    )
+    system_message = (
+        "You are an educational video script writer. "
+        "Write in an informative, straightforward, no-fluff style. "
+        "Use a conversational voice and address the reader directly as if presenting an informative case in a video."
+    )
+
     # Generate script
     script_prompt = f"""
-You are an educational video script writer. Create an engaging, informative script about "{state['topic']}".
+Create an engaging, informative script about the topic in <topic>.
 
-Research Summary:
-{synthesis}
+{topic_xml}
 
-Detailed Sources:
-{research_text}
+{research_summary_xml}
 
-Requirements:
-- Write EXACTLY between {min_words} and {max_words} words
-- Make it educational and engaging
-- Use clear, accessible language
-- Include key technical concepts
-- Structure with clear sections/paragraphs
-- Do NOT include stage directions or speaker notes
-- Write in a natural, conversational tone suitable for narration
+<sources>
+{sources_xml}
+</sources>
 
-{f"IMPORTANT: Previous attempt had incorrect word count. This is attempt #{retry_count + 1}. Please carefully count words and ensure you meet the {min_words}-{max_words} word requirement." if retry_count > 0 else ""}
+<requirements>
+  {word_count_xml}
+  <style>Informative, straightforward, and conversational; no fluff.</style>
+  <language>Clear, accessible language.</language>
+  <addressing>Address the reader directly as if presenting an informative case in a video.</addressing>
+  <content>Include key technical concepts.</content>
+  <structure>Paragraphs only; no headings, lists, or other formatting.</structure>
+  <format>Plain paragraph text only.</format>
+  <constraints>No stage directions or speaker notes.</constraints>
+  <tone>Natural, conversational narration.</tone>
+</requirements>
+
+{retry_notice_xml}
 
 Return ONLY the script text, nothing else.
 """
@@ -86,7 +108,8 @@ Return ONLY the script text, nothing else.
     script = await openai_client.generate(
         script_prompt,
         max_tokens=1500,
-        temperature=0.7
+        temperature=0.7,
+        system_message=system_message
     )
 
     # Count words
@@ -152,7 +175,9 @@ Return your response as a JSON array of sections like this:
 ]
 
 Script:
+<script>
 {script}
+</script>
 
 Return ONLY the JSON array, no other text.
 """

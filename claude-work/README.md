@@ -41,6 +41,20 @@ User Topic → Research → Script Generation → Script Parsing → Image Colle
 - Tavily API key
 - ffmpeg (required for pydub audio processing)
 
+### Quickstart (Recommended)
+
+```bash
+./setup.sh
+source .venv/bin/activate
+cp .env.example .env
+```
+
+Edit `.env`, then run:
+
+```bash
+python -m src.main "neural networks"
+```
+
 ### Install ffmpeg
 
 **macOS** (using Homebrew):
@@ -60,6 +74,8 @@ Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
 
 ```bash
 cd claude-work
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -109,6 +125,7 @@ MAX_RATE_OPENAI_PER_MIN=500
 Run the interactive CLI:
 
 ```bash
+source .venv/bin/activate
 python -m src.main
 ```
 
@@ -122,8 +139,30 @@ Enter a technical topic for your video: quantum entanglement
 Provide the topic directly:
 
 ```bash
+source .venv/bin/activate
 python -m src.main "photosynthesis in plants"
 ```
+
+### One-off Node Tests (Debug/Validation)
+
+These run each node in isolation and persist state to `output/one_off_state.json`.
+Run them in order:
+
+```bash
+source .venv/bin/activate
+python scripts/one_offs/01_config.py
+python scripts/one_offs/02_openai_smoke.py
+python scripts/one_offs/03_tavily_smoke.py
+python scripts/one_offs/04_research_node.py "your topic"
+python scripts/one_offs/05_script_node.py
+python scripts/one_offs/06_parse_script_node.py
+python scripts/one_offs/07_collect_images_node.py
+python scripts/one_offs/08_map_images_node.py
+python scripts/one_offs/09_download_images_node.py
+python scripts/one_offs/10_voice_node.py
+```
+
+Note: These scripts make real API calls and will incur costs.
 
 ### Example Session
 
@@ -351,6 +390,13 @@ pwd  # Should be in claude-work/
 cat .env | grep API_KEY
 ```
 
+### Checkpointer Requires `thread_id`
+
+If you invoke the LangGraph workflow manually, provide a `thread_id` in the configurable context:
+```python
+final_state = await workflow.ainvoke(initial_state, {"configurable": {"thread_id": run_id}})
+```
+
 ## Architecture Details
 
 ### LangGraph Workflow
@@ -371,7 +417,7 @@ research → synthesize_script → [VALIDATE] → parse_script → collect_image
 
 - Uses `TypedDict` with `Annotated` reducers for accumulating data
 - State includes error tracking, retry counts, and per-node metadata
-- Checkpointing enabled via SQLite for crash recovery
+- Checkpointing enabled (SQLite when available, otherwise in-memory)
 
 ### Rate Limiting
 

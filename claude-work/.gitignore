@@ -1,30 +1,49 @@
-# Environment
+# Environment files
 .env
-*.pyc
+.env.*
+
+# Python bytecode/cache
 __pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging/build artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+*.whl
+
+# Testing/coverage
 .pytest_cache/
 .ruff_cache/
-*.egg-info/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+coverage.xml
+htmlcov/
+.cache/
+.hypothesis/
 
-# Outputs
+# Outputs/logs
 output/
 checkpoints.db
 checkpoints.db-shm
 checkpoints.db-wal
+*.log
 
-# IDE
+# IDE/OS
 .vscode/
 .idea/
+.DS_Store
 *.swp
 *.swo
-.DS_Store
-
-# Testing
-.coverage
-htmlcov/
-.tox/
-
-# Virtual environments
-venv/
-env/
-ENV/

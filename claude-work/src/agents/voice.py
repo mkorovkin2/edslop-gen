@@ -161,10 +161,11 @@ async def generate_voice_node(
     except Exception:
         duration_seconds = None
 
+    duration_label = f"{duration_seconds:.1f}s" if duration_seconds is not None else "unknown"
     logger.info(
         "Voice: audio generated (%s, duration=%s)",
         str(final_path),
-        f\"{duration_seconds:.1f}s\" if duration_seconds is not None else "unknown"
+        duration_label
     )
 
     return {

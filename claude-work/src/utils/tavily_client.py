@@ -1,5 +1,6 @@
 """Tavily API client with retry logic and rate limiting."""
 
+import logging
 import httpx
 from typing import List, Dict, Any
 from tenacity import (
@@ -10,6 +11,8 @@ from tenacity import (
 )
 
 from .rate_limiter import RateLimitedClient
+
+logger = logging.getLogger(__name__)
 
 
 class TavilyClient(RateLimitedClient):
@@ -32,6 +35,11 @@ class TavilyClient(RateLimitedClient):
         super().__init__(max_concurrent, max_per_minute)
         self.api_key = api_key
         self.base_url = "https://api.tavily.com"
+        logger.info(
+            "TavilyClient initialized (max_concurrent=%d, max_per_minute=%d)",
+            max_concurrent,
+            max_per_minute
+        )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -54,6 +62,7 @@ class TavilyClient(RateLimitedClient):
             httpx.HTTPStatusError: If API returns error status
             httpx.TimeoutException: If request times out
         """
+        logger.debug("Tavily search: query=%r depth=%s", query, search_depth)
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/search",
@@ -67,6 +76,7 @@ class TavilyClient(RateLimitedClient):
             )
             response.raise_for_status()
             data = response.json()
+            logger.debug("Tavily search: %d results for query=%r", len(data.get('results', [])), query)
             return data.get('results', [])
 
     async def search(self, query: str, search_depth: str = "advanced") -> List[Dict[str, Any]]:
@@ -110,6 +120,7 @@ class TavilyClient(RateLimitedClient):
             httpx.HTTPStatusError: If API returns error status
             httpx.TimeoutException: If request times out
         """
+        logger.debug("Tavily image search: query=%r max_results=%d", query, max_results)
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/search",
@@ -124,6 +135,7 @@ class TavilyClient(RateLimitedClient):
             )
             response.raise_for_status()
             data = response.json()
+            logger.debug("Tavily image search: %d images for query=%r", len(data.get('images', [])), query)
             return data.get('images', [])
 
     async def search_images(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:

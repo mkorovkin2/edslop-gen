@@ -1,5 +1,6 @@
 """OpenAI API client with retry logic and rate limiting."""
 
+import logging
 from openai import AsyncOpenAI, OpenAIError
 from typing import Optional
 from tenacity import (
@@ -11,6 +12,8 @@ from tenacity import (
 import tiktoken
 
 from .rate_limiter import RateLimitedClient
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIClient(RateLimitedClient):
@@ -47,6 +50,12 @@ class OpenAIClient(RateLimitedClient):
         except KeyError:
             # If model not found, use cl100k_base (GPT-4/GPT-3.5)
             self.encoding = tiktoken.get_encoding("cl100k_base")
+        logger.info(
+            "OpenAIClient initialized (model=%s, max_concurrent=%d, max_per_minute=%d)",
+            self.model,
+            max_concurrent,
+            max_per_minute
+        )
 
     def count_tokens(self, text: str) -> int:
         """
@@ -106,6 +115,7 @@ class OpenAIClient(RateLimitedClient):
             error_msg = str(e).lower()
             # Some models only accept max_tokens; fall back if needed.
             if "unsupported parameter" in error_msg and "max_completion_tokens" in error_msg:
+                logger.warning("OpenAI generate: falling back to max_tokens parameter")
                 response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -157,6 +167,20 @@ class OpenAIClient(RateLimitedClient):
                 system_message="You are a technical educator."
             )
         """
+        if logger.isEnabledFor(logging.DEBUG):
+            prompt_tokens = None
+            try:
+                prompt_tokens = self.count_tokens(prompt)
+            except Exception:
+                prompt_tokens = None
+            logger.debug(
+                "OpenAI generate: model=%s prompt_chars=%d prompt_tokens=%s max_tokens=%d temp=%.2f",
+                self.model,
+                len(prompt),
+                prompt_tokens if prompt_tokens is not None else "unknown",
+                max_tokens,
+                temperature
+            )
         return await self._execute_with_limits(
             self._generate_impl(prompt, max_tokens, temperature, system_message)
         )
@@ -195,6 +219,12 @@ class OpenAIClient(RateLimitedClient):
                 "Please chunk the text before calling this method."
             )
 
+        logger.debug(
+            "OpenAI TTS: model=%s voice=%s text_chars=%d",
+            model,
+            voice,
+            len(text)
+        )
         response = await self.client.audio.speech.create(
             model=model,
             voice=voice,

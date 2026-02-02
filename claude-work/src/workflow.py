@@ -242,6 +242,7 @@ async def run_workflow(topic: str, config: Config) -> Dict[str, Any]:
     progress_callback = ProgressCallback()
     workflow = create_workflow(config, progress_callback=progress_callback)
 
+    logger.info("Workflow: starting run_id=%s topic=%s", run_id, topic)
     print(f"\n🚀 Starting workflow for: {topic}")
     print(f"📁 Run ID: {run_id}\n")
 
@@ -251,6 +252,7 @@ async def run_workflow(topic: str, config: Config) -> Dict[str, Any]:
             {"configurable": {"thread_id": run_id}}
         )
         progress_callback.on_workflow_complete(final_state)
+        logger.info("Workflow: completed run_id=%s", run_id)
         return final_state
     except Exception as e:
         print(f"\n❌ Workflow failed: {str(e)}")

@@ -2,10 +2,13 @@
 
 import os
 import json
+import logging
 import aiofiles
 from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class OutputManager:
@@ -53,6 +56,7 @@ class OutputManager:
         (run_dir / "images").mkdir(exist_ok=True)
         (run_dir / "voice").mkdir(exist_ok=True)
 
+        logger.info("Output: created run directory %s", str(run_dir))
         return run_dir
 
     async def write_script(self, run_id: str, script: str):
@@ -71,6 +75,7 @@ class OutputManager:
             await f.write(f"**Generated**: {datetime.now().isoformat()}\n\n")
             await f.write(f"---\n\n")
             await f.write(script)
+        logger.debug("Output: wrote script %s", str(script_path))
 
     async def write_images_json(
         self,
@@ -98,6 +103,7 @@ class OutputManager:
 
         async with aiofiles.open(images_json_path, 'w', encoding='utf-8') as f:
             await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+        logger.debug("Output: wrote images metadata %s", str(images_json_path))
 
     async def write_metadata(self, run_id: str, metadata: Dict[str, Any]):
         """
@@ -121,6 +127,7 @@ class OutputManager:
 
         async with aiofiles.open(meta_path, 'w', encoding='utf-8') as f:
             await f.write(json.dumps(metadata, indent=2, ensure_ascii=False))
+        logger.debug("Output: wrote run metadata %s", str(meta_path))
 
     async def save_image(
         self,
@@ -146,6 +153,7 @@ class OutputManager:
         async with aiofiles.open(image_path, 'wb') as f:
             await f.write(image_data)
 
+        logger.debug("Output: saved image %s", str(image_path))
         return str(image_path.relative_to(run_dir))
 
     async def save_audio(
@@ -172,6 +180,7 @@ class OutputManager:
         async with aiofiles.open(audio_path, 'wb') as f:
             await f.write(audio_data)
 
+        logger.debug("Output: saved audio %s", str(audio_path))
         return str(audio_path)
 
     def cleanup_old_runs(self, max_age_days: int = 7):
@@ -193,5 +202,5 @@ class OutputManager:
             # Check modification time
             mtime = datetime.fromtimestamp(run_dir.stat().st_mtime)
             if mtime < cutoff_time:
-                print(f"Deleting old run: {run_dir.name}")
+                logger.info("Deleting old run: %s", run_dir.name)
                 shutil.rmtree(run_dir)

@@ -15,6 +15,7 @@ class WorkflowState(TypedDict):
     # Core data
     topic: str                                            # User's input topic
     run_id: str                                           # Unique run identifier
+    script_outline: str                                   # Optional script outline
     research_data: Annotated[List[Dict[str, Any]], operator.add]   # Tavily research results (accumulated)
     script: str                                           # Generated script (200-500 words)
     script_sections: List[Dict[str, Any]]                 # Parsed script sections
@@ -102,7 +103,7 @@ class RunMetadata(BaseModel):
     warnings: List[str] = Field(default_factory=list, description="Warnings during run")
 
 
-def create_initial_state(topic: str, run_id: str) -> WorkflowState:
+def create_initial_state(topic: str, run_id: str, script_outline: str = "") -> WorkflowState:
     """
     Create initial workflow state for a new run.
 
@@ -116,6 +117,7 @@ def create_initial_state(topic: str, run_id: str) -> WorkflowState:
     return WorkflowState(
         topic=topic,
         run_id=run_id,
+        script_outline=script_outline,
         research_data=[],
         script="",
         script_sections=[],

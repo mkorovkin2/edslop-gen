@@ -37,6 +37,7 @@ async def synthesize_script_node(
 
     # Get research synthesis if available
     synthesis = state.get('metadata', {}).get('research_synthesis', '')
+    outline = state.get('script_outline', '').strip()
 
     # Get current retry count
     retry_count = state.get('retry_counts', {}).get('synthesize_script', 0)
@@ -55,6 +56,7 @@ async def synthesize_script_node(
 
     topic_xml = f"<topic>{state['topic']}</topic>"
     research_summary_xml = f"<research_summary>{synthesis}</research_summary>"
+    outline_xml = f"<outline>{outline}</outline>" if outline else ""
     sources_xml = "\n".join([
         "<source>"
         f"<title>{r.get('title', 'Source')}</title>"
@@ -84,6 +86,8 @@ Create an engaging, informative script about the topic in <topic>.
 
 {research_summary_xml}
 
+{outline_xml}
+
 <sources>
 {sources_xml}
 </sources>
@@ -94,6 +98,7 @@ Create an engaging, informative script about the topic in <topic>.
   <language>Clear, accessible language.</language>
   <addressing>Address the reader directly as if presenting an informative case in a video.</addressing>
   <content>Include key technical concepts.</content>
+  <outline>Follow the outline if provided, but write continuous paragraphs without headings.</outline>
   <structure>Paragraphs only; no headings, lists, or other formatting.</structure>
   <format>Plain paragraph text only.</format>
   <constraints>No stage directions or speaker notes.</constraints>

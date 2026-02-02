@@ -55,6 +55,11 @@ async def save_outputs_node(
     # Write script.md
     await output_manager.write_script(run_id, state['script'])
 
+    # Write outline.md if available
+    outline_text = state.get('script_outline', '').strip()
+    if outline_text:
+        await output_manager.write_outline(run_id, outline_text)
+
     # Write images.json
     await output_manager.write_images_json(
         run_id,
@@ -68,6 +73,7 @@ async def save_outputs_node(
         "run_id": run_id,
         "topic": state['topic'],
         "model_name": os.getenv('MODEL_NAME', 'gpt-5.2'),
+        "outline_used": bool(outline_text),
         "script_word_count": len(state['script'].split()),
         "script_sections_count": len(state['script_sections']),
         "images_collected": len(state['images']),
@@ -217,7 +223,7 @@ def create_workflow(
     return graph.compile()
 
 
-async def run_workflow(topic: str, config: Config) -> Dict[str, Any]:
+async def run_workflow(topic: str, config: Config, script_outline: str = "") -> Dict[str, Any]:
     """
     Run the complete workflow for a given topic.
 
@@ -232,7 +238,7 @@ async def run_workflow(topic: str, config: Config) -> Dict[str, Any]:
 
     # Generate run ID and create initial state
     run_id = generate_run_id()
-    initial_state = create_initial_state(topic, run_id)
+    initial_state = create_initial_state(topic, run_id, script_outline=script_outline)
 
     # Create output directory
     output_manager = OutputManager()

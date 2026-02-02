@@ -134,6 +134,13 @@ You'll be prompted to enter a topic:
 Enter a technical topic for your video: quantum entanglement
 ```
 
+By default, the CLI generates a rough outline and lets you iterate on it before the workflow runs.
+To skip the outline step:
+
+```bash
+python -m src.main --no-outline "quantum entanglement"
+```
+
 ### Command Line Usage
 
 Provide the topic directly:
@@ -262,6 +269,7 @@ Each run creates a unique directory with all generated content:
 output/
 └── run_20260201_143022_742/
     ├── script.md              # Educational script (200-500 words)
+    ├── outline.md             # Approved script outline (if used)
     ├── images.json            # Image mappings to script sections
     ├── meta.json              # Complete run metadata
     ├── images/                # Downloaded images

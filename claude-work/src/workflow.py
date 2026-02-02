@@ -86,7 +86,8 @@ async def save_outputs_node(
         "voice_chunks": metadata.get('voice_chunks', 1),
         "voice_duration_seconds": metadata.get('voice_duration_seconds'),
         "tts_model": metadata.get('tts_model', 'tts-1-hd'),
-        "tts_voice": metadata.get('tts_voice', 'alloy')
+        "tts_voice": metadata.get('tts_voice', 'alloy'),
+        "tts_speed": metadata.get('tts_speed', 1.2)
     })
 
     await output_manager.write_metadata(run_id, metadata)

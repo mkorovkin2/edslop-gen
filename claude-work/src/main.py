@@ -36,8 +36,32 @@ def _read_multiline(prompt: str) -> str:
     return "\n".join(lines).strip()
 
 
-async def _outline_flow(topic: str, openai_client: OpenAIClient) -> str:
-    outline = await generate_outline(topic, openai_client)
+def _section_bounds(min_words: int, max_words: int) -> tuple[int, int]:
+    # Short scripts should have fewer sections to stay tight.
+    if max_words <= 200:
+        return 3, 4
+    if max_words <= 300:
+        return 4, 5
+    if max_words <= 450:
+        return 5, 6
+    return 5, 7
+
+
+async def _outline_flow(
+    topic: str,
+    openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int
+) -> str:
+    min_sections, max_sections = _section_bounds(min_words, max_words)
+    outline = await generate_outline(
+        topic,
+        openai_client,
+        min_words=min_words,
+        max_words=max_words,
+        min_sections=min_sections,
+        max_sections=max_sections
+    )
     auto_accept = not sys.stdin.isatty()
 
     while True:
@@ -58,7 +82,14 @@ async def _outline_flow(topic: str, openai_client: OpenAIClient) -> str:
             print("Exiting at your request.")
             sys.exit(1)
         if choice.lower() in ("r", "regenerate"):
-            outline = await generate_outline(topic, openai_client)
+            outline = await generate_outline(
+                topic,
+                openai_client,
+                min_words=min_words,
+                max_words=max_words,
+                min_sections=min_sections,
+                max_sections=max_sections
+            )
             continue
         if choice.lower() in ("m", "manual"):
             manual = _read_multiline("Paste a replacement outline:")
@@ -72,7 +103,14 @@ async def _outline_flow(topic: str, openai_client: OpenAIClient) -> str:
         else:
             feedback = choice
 
-        outline = await revise_outline(topic, outline, feedback, openai_client)
+        outline = await revise_outline(
+            topic,
+            outline,
+            feedback,
+            openai_client,
+            min_words=min_words,
+            max_words=max_words
+        )
 
 
 async def main_async(topic: str = None, skip_outline: bool = False):
@@ -125,7 +163,12 @@ async def main_async(topic: str = None, skip_outline: bool = False):
                 max_concurrent=config.max_concurrent_openai,
                 max_per_minute=config.max_rate_openai_per_min
             )
-            script_outline = await _outline_flow(topic, outline_client)
+            script_outline = await _outline_flow(
+                topic,
+                outline_client,
+                min_words=config.script_min_words,
+                max_words=config.script_max_words
+            )
             if script_outline:
                 print("Outline accepted. Continuing the workflow...\n")
         except Exception as e:
@@ -172,6 +215,8 @@ async def main_async(topic: str = None, skip_outline: bool = False):
         print(f"\n🎙️  Voice:")
         print(f"   - Model: {meta.get('tts_model', 'N/A')}")
         print(f"   - Voice: {meta.get('tts_voice', 'N/A')}")
+        if meta.get('tts_speed') is not None:
+            print(f"   - Speed: {meta.get('tts_speed')}")
 
         if meta.get('voice_duration_seconds'):
             duration_min = int(meta['voice_duration_seconds'] // 60)

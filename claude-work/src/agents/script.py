@@ -75,6 +75,7 @@ async def synthesize_script_node(
     system_message = (
         "You are an educational video script writer. "
         "Write in an informative, straightforward, no-fluff style. "
+        "Every sentence must introduce a concrete fact, mechanism, or necessary transition; no filler. "
         "Use a conversational voice and address the reader directly as if presenting an informative case in a video. "
         "Follow any provided outline while keeping the output as continuous paragraphs."
     )
@@ -95,14 +96,21 @@ Create an engaging, informative script about the topic in <topic>.
 
 <requirements>
   {word_count_xml}
-  <style>Informative, straightforward, and conversational; no fluff.</style>
+  <style>Informative, straightforward, and conversational; zero fluff.</style>
   <language>Clear, accessible language.</language>
   <addressing>Address the reader directly as if presenting an informative case in a video.</addressing>
   <content>Include key technical concepts.</content>
   <outline>Follow the outline if provided, but write continuous paragraphs without headings.</outline>
   <structure>Paragraphs only; no headings, lists, or other formatting.</structure>
   <format>Plain paragraph text only.</format>
-  <constraints>No stage directions or speaker notes.</constraints>
+  <constraints>
+    No stage directions or speaker notes.
+    Do not include: greetings, scene-setting, motivational lines, rhetorical questions,
+    "in this video" phrasing, or generic wrap-up statements.
+    Avoid repetition and vague claims.
+    Start immediately with a concrete definition or key technical claim.
+    End with a final concrete point (not a summary or wrap-up).
+  </constraints>
   <tone>Natural, conversational narration.</tone>
 </requirements>
 
@@ -122,6 +130,82 @@ Return ONLY the script text, nothing else.
     word_count = len(script.split())
     logger.info("Script: generated %d words", word_count)
 
+    # Evaluate script for concision / fluff
+    quality_passed = False
+    quality_issues = []
+    quality_fluff_examples = []
+    banned_phrases = [
+        "in this video",
+        "today we're going to",
+        "today we are going to",
+        "let's dive in",
+        "let's jump in",
+        "welcome",
+        "stick around",
+        "without further ado",
+        "in conclusion",
+        "to wrap up",
+        "thanks for watching",
+        "that's it for",
+        "as you can see",
+    ]
+    lower_script = script.lower()
+    banned_hits = [p for p in banned_phrases if p in lower_script]
+    if banned_hits:
+        quality_passed = False
+        quality_issues.append(f"banned_phrases: {', '.join(banned_hits)}")
+    if "?" in script:
+        quality_passed = False
+        quality_issues.append("contains_question_marks")
+    try:
+        quality_prompt = f"""
+You are a strict editor. Evaluate the script for concision and zero-fluff requirements.
+
+Rules for PASS:
+- Every sentence delivers a concrete fact, mechanism, or necessary transition.
+- No filler, generic framing, motivational lines, rhetorical questions, or scene-setting.
+- No repetition or vague claims.
+- Start is immediate and substantive; end is a concrete final point (not a wrap-up).
+
+If any rule is violated, FAIL. If you are unsure, FAIL.
+
+Return ONLY a JSON object:
+{{
+  "pass": true/false,
+  "issues": ["short issue", ...],
+  "fluff_examples": ["short excerpt", ...]
+}}
+
+Script:
+<script>
+{script}
+</script>
+"""
+        quality_json = await openai_client.generate(
+            quality_prompt,
+            max_tokens=400,
+            temperature=0.0
+        )
+        quality_data = json.loads(quality_json.strip())
+        if isinstance(quality_data, dict):
+            quality_passed = bool(quality_data.get("pass", False))
+            quality_issues = quality_data.get("issues", []) if isinstance(quality_data.get("issues", []), list) else []
+            quality_fluff_examples = (
+                quality_data.get("fluff_examples", [])
+                if isinstance(quality_data.get("fluff_examples", []), list)
+                else []
+            )
+            if banned_hits:
+                quality_passed = False
+                if not any("banned_phrases" in str(item) for item in quality_issues):
+                    quality_issues.append(f"banned_phrases: {', '.join(banned_hits)}")
+            if "?" in script and "contains_question_marks" not in quality_issues:
+                quality_issues.append("contains_question_marks")
+    except Exception as e:
+        logger.warning("Script: quality eval failed, treating as not passed. Error: %s", e)
+        quality_passed = False
+        quality_issues = ["quality_eval_failed"]
+
     # Update state
     return {
         "script": script,
@@ -129,7 +213,11 @@ Return ONLY the script text, nothing else.
             **state.get("metadata", {}),
             "script_generated_at": datetime.now().isoformat(),
             "word_count": word_count,
-            "script_retry_count": retry_count
+            "script_retry_count": retry_count,
+            "script_quality_passed": quality_passed,
+            "script_quality_issues": quality_issues,
+            "script_quality_fluff_examples": quality_fluff_examples,
+            "script_quality_checked_at": datetime.now().isoformat()
         },
         "retry_counts": {
             **state.get("retry_counts", {}),
@@ -137,7 +225,7 @@ Return ONLY the script text, nothing else.
         },
         "api_call_counts": {
             **state.get("api_call_counts", {}),
-            "openai": state.get("api_call_counts", {}).get("openai", 0) + 1
+            "openai": state.get("api_call_counts", {}).get("openai", 0) + 2
         }
     }
 
@@ -254,7 +342,7 @@ Return ONLY the JSON array, no other text.
 
 def validate_script_word_count(state: WorkflowState) -> str:
     """
-    Conditional edge function to validate script word count.
+    Conditional edge function to validate script word count and concision.
 
     Args:
         state: Current workflow state
@@ -267,21 +355,22 @@ def validate_script_word_count(state: WorkflowState) -> str:
 
     word_count = len(state['script'].split())
     retry_count = state.get('retry_counts', {}).get('synthesize_script', 0)
+    quality_passed = bool(state.get("metadata", {}).get("script_quality_passed", False))
 
-    if min_words <= word_count <= max_words:
+    if min_words <= word_count <= max_words and quality_passed:
         return "continue"
     elif retry_count >= 3:
         logger.warning(
-            "Script: word count %d outside range after %d retries; continuing anyway.",
+            "Script: validation failed (words=%d, quality=%s) after %d retries; continuing anyway.",
             word_count,
+            quality_passed,
             retry_count
         )
         return "max_retries"
     else:
         logger.info(
-            "Script: word count %d outside range [%d, %d]; retrying.",
+            "Script: validation failed (words=%d, quality=%s); retrying.",
             word_count,
-            min_words,
-            max_words
+            quality_passed
         )
         return "retry"

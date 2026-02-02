@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 async def generate_outline(
     topic: str,
     openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int,
     min_sections: int = 5,
     max_sections: int = 7
 ) -> str:
@@ -34,6 +36,7 @@ async def generate_outline(
 Create a rough outline for an educational video script about the topic below.
 
 Topic: {topic}
+Script length: {min_words}-{max_words} words (keep it very concise).
 
 Requirements:
 - {min_sections}-{max_sections} sections in a logical flow (intro to wrap-up).
@@ -63,7 +66,9 @@ async def revise_outline(
     topic: str,
     outline: str,
     feedback: str,
-    openai_client: OpenAIClient
+    openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int
 ) -> str:
     """
     Revise an outline using user feedback.
@@ -86,6 +91,7 @@ async def revise_outline(
 Revise the outline based on the feedback. Keep the same outline format.
 
 Topic: {topic}
+Script length: {min_words}-{max_words} words (keep it very concise).
 
 Current outline:
 {outline}

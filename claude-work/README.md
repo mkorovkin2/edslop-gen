@@ -333,6 +333,7 @@ Complete metadata including:
 
 - `TTS_MODEL`: `tts-1` (faster) or `tts-1-hd` (higher quality)
 - `TTS_VOICE`: Choose from `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
+- `TTS_SPEED`: Speech speed multiplier (default: 1.2)
 - Automatic chunking for scripts > 4000 characters
 
 ### Rate Limiting

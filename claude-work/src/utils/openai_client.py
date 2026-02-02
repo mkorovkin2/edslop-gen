@@ -195,7 +195,8 @@ class OpenAIClient(RateLimitedClient):
         self,
         text: str,
         voice: str = "alloy",
-        model: str = "tts-1-hd"
+        model: str = "tts-1-hd",
+        speed: Optional[float] = None
     ) -> bytes:
         """
         Internal implementation of speech generation with retry.
@@ -204,6 +205,7 @@ class OpenAIClient(RateLimitedClient):
             text: Text to convert to speech
             voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
             model: TTS model to use
+            speed: Optional speech speed (e.g., 1.2)
 
         Returns:
             Audio data as bytes (MP3 format)
@@ -225,11 +227,14 @@ class OpenAIClient(RateLimitedClient):
             voice,
             len(text)
         )
-        response = await self.client.audio.speech.create(
-            model=model,
-            voice=voice,
-            input=text
-        )
+        request_kwargs = {
+            "model": model,
+            "voice": voice,
+            "input": text
+        }
+        if speed is not None:
+            request_kwargs["speed"] = speed
+        response = await self.client.audio.speech.create(**request_kwargs)
 
         # Response.content gives us the audio bytes directly
         return response.content
@@ -238,7 +243,8 @@ class OpenAIClient(RateLimitedClient):
         self,
         text: str,
         voice: str = "alloy",
-        model: str = "tts-1-hd"
+        model: str = "tts-1-hd",
+        speed: Optional[float] = None
     ) -> bytes:
         """
         Generate speech from text with rate limiting.
@@ -247,6 +253,7 @@ class OpenAIClient(RateLimitedClient):
             text: Text to convert to speech (max 4096 characters)
             voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
             model: TTS model to use (tts-1 or tts-1-hd)
+            speed: Optional speech speed (e.g., 1.2)
 
         Returns:
             Audio data as bytes (MP3 format)
@@ -260,14 +267,15 @@ class OpenAIClient(RateLimitedClient):
                 f.write(audio)
         """
         return await self._execute_with_limits(
-            self._generate_speech_impl(text, voice, model)
+            self._generate_speech_impl(text, voice, model, speed)
         )
 
     async def generate_speech_chunks(
         self,
         text_chunks: list[str],
         voice: str = "alloy",
-        model: str = "tts-1-hd"
+        model: str = "tts-1-hd",
+        speed: Optional[float] = None
     ) -> list[bytes]:
         """
         Generate speech for multiple text chunks concurrently.
@@ -276,6 +284,7 @@ class OpenAIClient(RateLimitedClient):
             text_chunks: List of text chunks (each max 4096 chars)
             voice: Voice to use
             model: TTS model to use
+            speed: Optional speech speed (e.g., 1.2)
 
         Returns:
             List of audio data bytes, one per chunk
@@ -285,5 +294,5 @@ class OpenAIClient(RateLimitedClient):
             audio_chunks = await client.generate_speech_chunks(chunks)
         """
         import asyncio
-        tasks = [self.generate_speech(chunk, voice, model) for chunk in text_chunks]
+        tasks = [self.generate_speech(chunk, voice, model, speed) for chunk in text_chunks]
         return await asyncio.gather(*tasks, return_exceptions=False)

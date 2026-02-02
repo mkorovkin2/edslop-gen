@@ -32,6 +32,18 @@ User Topic → Research → Script Generation → Script Parsing → Image Colle
 7. **Voice Synthesis**: OpenAI TTS with automatic chunking for long scripts
 8. **Save Outputs**: Writes all files to structured output directory
 
+## How the Bot Flow Works (Runtime)
+
+1. **CLI boot + config**: `src/main.py` loads `.env` config, prints targets, and gets the topic (prompt or CLI arg).
+2. **Optional outline loop**: unless `--no-outline` is used, the bot generates a rough outline, lets you accept/edit/regenerate it, and passes the final outline into the workflow.
+3. **Workflow init**: `run_workflow()` creates a `run_id`, initial state, and output directory, then builds the LangGraph with OpenAI/Tavily clients and optional checkpointing (sqlite if available, otherwise in-memory).
+4. **State-driven execution**: each node runs async and returns a partial state update (script, sections, images, metadata, retry counters, API call counts) that merges into the shared workflow state.
+5. **Conditional loops**:
+   - Script validation checks word count + quality; it allows up to 3 total attempts (2 retries) before continuing anyway.
+   - Image collection checks minimum image count; it allows up to 2 total attempts (1 retry) before falling back to mapping whatever images exist.
+6. **Finalization**: the graph proceeds through mapping → download → voice → save. The save node writes `script.md`, `outline.md` (if present), `images.json`, `meta.json`, and the TTS audio.
+7. **CLI summary**: after the graph finishes, the CLI prints metrics and the output file list from the final state.
+
 ## Installation
 
 ### Prerequisites
@@ -132,6 +144,13 @@ python -m src.main
 You'll be prompted to enter a topic:
 ```
 Enter a technical topic for your video: quantum entanglement
+```
+
+By default, the CLI generates a rough outline and lets you iterate on it before the workflow runs.
+To skip the outline step:
+
+```bash
+python -m src.main --no-outline "quantum entanglement"
 ```
 
 ### Command Line Usage
@@ -262,6 +281,7 @@ Each run creates a unique directory with all generated content:
 output/
 └── run_20260201_143022_742/
     ├── script.md              # Educational script (200-500 words)
+    ├── outline.md             # Approved script outline (if used)
     ├── images.json            # Image mappings to script sections
     ├── meta.json              # Complete run metadata
     ├── images/                # Downloaded images
@@ -325,6 +345,7 @@ Complete metadata including:
 
 - `TTS_MODEL`: `tts-1` (faster) or `tts-1-hd` (higher quality)
 - `TTS_VOICE`: Choose from `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
+- `TTS_SPEED`: Speech speed multiplier (default: 1.2)
 - Automatic chunking for scripts > 4000 characters
 
 ### Rate Limiting

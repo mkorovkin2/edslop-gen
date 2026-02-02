@@ -83,10 +83,15 @@ async def generate_voice_node(
 
     tts_model = os.getenv('TTS_MODEL', 'tts-1-hd')
     tts_voice = os.getenv('TTS_VOICE', 'alloy')
+    try:
+        tts_speed = float(os.getenv('TTS_SPEED', '1.2'))
+    except ValueError:
+        tts_speed = 1.2
     logger.info(
-        "Voice: generating audio (model=%s, voice=%s, script_chars=%d)",
+        "Voice: generating audio (model=%s, voice=%s, speed=%s, script_chars=%d)",
         tts_model,
         tts_voice,
+        tts_speed,
         len(script)
     )
 
@@ -111,7 +116,8 @@ async def generate_voice_node(
             audio_data = await openai_client.generate_speech(
                 text=chunk,
                 voice=tts_voice,
-                model=tts_model
+                model=tts_model,
+                speed=tts_speed
             )
 
             # Save temporary chunk
@@ -145,7 +151,8 @@ async def generate_voice_node(
         audio_data = await openai_client.generate_speech(
             text=script,
             voice=tts_voice,
-            model=tts_model
+            model=tts_model,
+            speed=tts_speed
         )
 
         final_path = voice_dir / "narration.mp3"
@@ -176,7 +183,8 @@ async def generate_voice_node(
             "voice_chunks": num_chunks,
             "voice_duration_seconds": duration_seconds,
             "tts_model": tts_model,
-            "tts_voice": tts_voice
+            "tts_voice": tts_voice,
+            "tts_speed": tts_speed
         },
         "api_call_counts": {
             **state.get("api_call_counts", {}),

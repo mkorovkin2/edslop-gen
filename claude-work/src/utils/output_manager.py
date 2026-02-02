@@ -77,6 +77,24 @@ class OutputManager:
             await f.write(script)
         logger.debug("Output: wrote script %s", str(script_path))
 
+    async def write_outline(self, run_id: str, outline: str):
+        """
+        Write outline to outline.md file.
+
+        Args:
+            run_id: Run identifier
+            outline: Outline content
+        """
+        run_dir = self.get_run_dir(run_id)
+        outline_path = run_dir / "outline.md"
+
+        async with aiofiles.open(outline_path, 'w', encoding='utf-8') as f:
+            await f.write(f"# Script Outline\n\n")
+            await f.write(f"**Generated**: {datetime.now().isoformat()}\n\n")
+            await f.write(f"---\n\n")
+            await f.write(outline)
+        logger.debug("Output: wrote outline %s", str(outline_path))
+
     async def write_images_json(
         self,
         run_id: str,

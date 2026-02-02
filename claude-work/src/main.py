@@ -6,11 +6,114 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import load_config
+from .agents.outline import generate_outline, revise_outline
 from .workflow import run_workflow
+from .utils.openai_client import OpenAIClient
 from .utils.logging_utils import configure_logging
 
 
-async def main_async(topic: str = None):
+def _parse_args(argv):
+    skip_outline = False
+    topic_parts = []
+    for arg in argv:
+        if arg in ("--no-outline", "--skip-outline"):
+            skip_outline = True
+            continue
+        topic_parts.append(arg)
+    topic = " ".join(topic_parts) if topic_parts else None
+    return topic, skip_outline
+
+
+def _read_multiline(prompt: str) -> str:
+    print(prompt)
+    print("(finish with a single '.' on its own line)")
+    lines = []
+    while True:
+        line = input()
+        if line.strip() == ".":
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _section_bounds(min_words: int, max_words: int) -> tuple[int, int]:
+    # Short scripts should have fewer sections to stay tight.
+    if max_words <= 200:
+        return 3, 4
+    if max_words <= 300:
+        return 4, 5
+    if max_words <= 450:
+        return 5, 6
+    return 5, 7
+
+
+async def _outline_flow(
+    topic: str,
+    openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int
+) -> str:
+    min_sections, max_sections = _section_bounds(min_words, max_words)
+    outline = await generate_outline(
+        topic,
+        openai_client,
+        min_words=min_words,
+        max_words=max_words,
+        min_sections=min_sections,
+        max_sections=max_sections
+    )
+    auto_accept = not sys.stdin.isatty()
+
+    while True:
+        print("\n" + "-" * 60)
+        print("Outline draft:")
+        print(outline)
+        print("-" * 60)
+
+        if auto_accept:
+            return outline
+
+        print("Outline options: [a]ccept, [e]dit, [r]egenerate, [m]anual, [q]uit")
+        choice = input("Choice (a/e/r/m/q or type feedback): ").strip()
+
+        if choice == "" or choice.lower() in ("a", "accept"):
+            return outline
+        if choice.lower() in ("q", "quit", "exit"):
+            print("Exiting at your request.")
+            sys.exit(1)
+        if choice.lower() in ("r", "regenerate"):
+            outline = await generate_outline(
+                topic,
+                openai_client,
+                min_words=min_words,
+                max_words=max_words,
+                min_sections=min_sections,
+                max_sections=max_sections
+            )
+            continue
+        if choice.lower() in ("m", "manual"):
+            manual = _read_multiline("Paste a replacement outline:")
+            if manual:
+                outline = manual
+            continue
+        if choice.lower() in ("e", "edit", "revise"):
+            feedback = input("Describe changes: ").strip()
+            if not feedback:
+                continue
+        else:
+            feedback = choice
+
+        outline = await revise_outline(
+            topic,
+            outline,
+            feedback,
+            openai_client,
+            min_words=min_words,
+            max_words=max_words
+        )
+
+
+async def main_async(topic: str = None, skip_outline: bool = False):
     """
     Async main function.
 
@@ -49,11 +152,39 @@ async def main_async(topic: str = None):
     print(f"🖼️  Images target: {config.images_min_total}+ images")
     print(f"🤖 Model: {config.model_name}")
 
+    # Optional outline flow
+    script_outline = ""
+    if not skip_outline:
+        try:
+            print("\nGenerating a rough outline...")
+            outline_client = OpenAIClient(
+                api_key=config.openai_api_key,
+                model=config.model_name,
+                max_concurrent=config.max_concurrent_openai,
+                max_per_minute=config.max_rate_openai_per_min
+            )
+            script_outline = await _outline_flow(
+                topic,
+                outline_client,
+                min_words=config.script_min_words,
+                max_words=config.script_max_words
+            )
+            if script_outline:
+                print("Outline accepted. Continuing the workflow...\n")
+        except Exception as e:
+            print(f"\n❌ Outline generation failed: {e}")
+            if sys.stdin.isatty():
+                proceed = input("Continue without an outline? [y/N]: ").strip().lower()
+                if proceed not in ("y", "yes"):
+                    sys.exit(1)
+            else:
+                sys.exit(1)
+
     # Run workflow
     start_time = datetime.now()
 
     try:
-        final_state = await run_workflow(topic, config)
+        final_state = await run_workflow(topic, config, script_outline=script_outline)
 
         # Calculate duration
         duration = (datetime.now() - start_time).total_seconds()
@@ -84,6 +215,8 @@ async def main_async(topic: str = None):
         print(f"\n🎙️  Voice:")
         print(f"   - Model: {meta.get('tts_model', 'N/A')}")
         print(f"   - Voice: {meta.get('tts_voice', 'N/A')}")
+        if meta.get('tts_speed') is not None:
+            print(f"   - Speed: {meta.get('tts_speed')}")
 
         if meta.get('voice_duration_seconds'):
             duration_min = int(meta['voice_duration_seconds'] // 60)
@@ -103,6 +236,9 @@ async def main_async(topic: str = None):
         output_dir = Path("output") / run_id
         if output_dir.exists():
             print(f"   ✓ {output_dir / 'script.md'}")
+            outline_path = output_dir / 'outline.md'
+            if outline_path.exists():
+                print(f"   ✓ {outline_path}")
             print(f"   ✓ {output_dir / 'images.json'}")
             print(f"   ✓ {output_dir / 'meta.json'}")
             print(f"   ✓ {output_dir / 'voice' / 'narration.mp3'}")
@@ -136,12 +272,10 @@ def main():
         python src/main.py
     """
     # Get topic from command line args if provided
-    topic = None
-    if len(sys.argv) > 1:
-        topic = " ".join(sys.argv[1:])
+    topic, skip_outline = _parse_args(sys.argv[1:])
 
     # Run async main
-    asyncio.run(main_async(topic))
+    asyncio.run(main_async(topic, skip_outline=skip_outline))
 
 
 if __name__ == "__main__":

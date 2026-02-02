@@ -1,0 +1,30 @@
+# Environment
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Outputs
+output/
+checkpoints.db
+checkpoints.db-shm
+checkpoints.db-wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+
+# Virtual environments
+venv/
+env/
+ENV/

@@ -75,7 +75,8 @@ async def synthesize_script_node(
     system_message = (
         "You are an educational video script writer. "
         "Write in an informative, straightforward, no-fluff style. "
-        "Use a conversational voice and address the reader directly as if presenting an informative case in a video."
+        "Use a conversational voice and address the reader directly as if presenting an informative case in a video. "
+        "Follow any provided outline while keeping the output as continuous paragraphs."
     )
 
     # Generate script
@@ -160,13 +161,17 @@ async def parse_script_node(
         raise ValueError("No script available for parsing")
 
     script = state['script']
+    outline = state.get('script_outline', '').strip()
 
+    outline_block = f"\nOutline (for guidance):\n{outline}\n" if outline else ""
     parse_prompt = f"""
 Parse the following educational script into logical sections.
 For each section, identify:
 1. A descriptive title (if the section has one)
 2. The full text of the section
 3. Individual sentences within that section
+{outline_block}
+If an outline is provided, use it to guide section boundaries and titles where it fits the script.
 
 Return your response as a JSON array of sections like this:
 [

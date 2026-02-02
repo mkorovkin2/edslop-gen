@@ -36,6 +36,7 @@ async def collect_images_node(
         raise ValueError("No script sections available for image collection")
 
     sections = state['script_sections']
+    outline = state.get('script_outline', '').strip()
     images_per_section = int(os.getenv('IMAGES_PER_SECTION', '5'))
     logger.info(
         "Images: generating search queries for %d sections (%d per section)",
@@ -44,9 +45,11 @@ async def collect_images_node(
     )
 
     # Step 1: Batch generate all image search queries using LLM
+    outline_block = f"\nOutline (for context):\n{outline}\n" if outline else ""
     query_generation_prompt = f"""
 You are helping create an educational video about "{state['topic']}".
 Generate image search queries for the following script sections.
+{outline_block}
 
 For each section, generate {images_per_section} diverse, specific image search queries that will find
 relevant visual aids (diagrams, illustrations, photos, charts).
@@ -178,6 +181,7 @@ async def map_images_node(
 
     sections = state['script_sections']
     images = state['images']
+    outline = state.get('script_outline', '').strip()
     logger.info(
         "Images: mapping %d images to %d sections",
         len(images),
@@ -190,9 +194,11 @@ async def map_images_node(
         for i, img in enumerate(images[:50])  # Limit to first 50 for token management
     ]
 
+    outline_block = f"\nOutline (for context):\n{outline}\n" if outline else ""
     mapping_prompt = f"""
 You are creating an educational video about "{state['topic']}".
 Map the most relevant images to each script section.
+{outline_block}
 
 Script sections:
 {json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text'][:300]} for s in sections], indent=2)}

@@ -29,14 +29,17 @@ async def research_node(
         Dict with updated research_data, metadata, and api_call_counts
     """
     topic = state['topic']
+    outline = state.get('script_outline', '').strip()
 
     # Step 1: Use LLM to generate 3-5 diverse search queries
     logger.info("Research: generating search queries for topic=%s", topic)
+    outline_block = f"\nOutline (for coverage guidance):\n{outline}\n" if outline else ""
     query_generation_prompt = f"""
 You are a research assistant. Given a technical topic, generate 3-5 diverse search queries
 that will help gather comprehensive information about this topic.
 
 Topic: {topic}
+{outline_block}
 
 Generate queries that cover:
 1. Basic concepts and definitions
@@ -44,6 +47,8 @@ Generate queries that cover:
 3. Real-world applications
 4. Recent developments or research
 5. Related concepts or comparisons
+
+If an outline is provided, ensure queries collectively cover each section and fill any gaps.
 
 Return ONLY a JSON array of query strings, like:
 ["query 1", "query 2", "query 3"]
@@ -100,7 +105,9 @@ Return ONLY a JSON array of query strings, like:
 Synthesize the following research results about "{topic}" into a structured summary.
 Focus on key concepts, technical details, and important facts that would be useful
 for creating an educational video script.
+{"If an outline is provided below, organize the summary to cover each section in order." if outline else ""}
 
+{outline_block}
 {research_text}
 
 Return a concise summary (200-300 words) covering the most important points.

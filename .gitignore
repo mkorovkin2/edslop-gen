@@ -1,6 +1,7 @@
 # Environment files
 .env
 .env.*
+!.env.example
 
 # Python bytecode/cache
 __pycache__/
@@ -47,3 +48,6 @@ checkpoints.db-wal
 .DS_Store
 *.swp
 *.swo
+
+# Frontend dependencies
+node_modules/

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video Script Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">VS</div>
+        <div>
+          <div class="brand-title">Video Script Studio</div>
+          <div class="brand-sub">Local workflow UI for research, script, images, and voice</div>
+        </div>
+      </div>
+      <div class="status-pill" id="global-status">Idle</div>
+    </header>
+
+    <main class="layout">
+      <section class="panel" style="--delay: 0.05s">
+        <div class="panel-header">
+          <h2>Run Setup</h2>
+          <span class="panel-tag">Step 1</span>
+        </div>
+        <label class="field">
+          <span>Topic</span>
+          <input id="topic" type="text" placeholder="e.g., error correcting codes in quantum computing" />
+        </label>
+        <label class="field">
+          <span>Outline</span>
+          <textarea id="outline" rows="6" placeholder="Optional. Generate or paste a focused outline."></textarea>
+        </label>
+        <label class="field">
+          <span>Outline feedback</span>
+          <input id="outline-feedback" type="text" placeholder="Make it narrower and more technical" />
+        </label>
+        <div class="button-row">
+          <button id="outline-generate">Generate outline</button>
+          <button id="outline-revise" class="ghost">Revise outline</button>
+        </div>
+        <div class="divider"></div>
+        <div class="button-row">
+          <button id="start-run" class="primary">Start run</button>
+        </div>
+        <div class="run-meta" id="run-meta">
+          <div><strong>Run ID:</strong> <span id="run-id">-</span></div>
+          <div><strong>Status:</strong> <span id="run-status">-</span></div>
+          <div><strong>Stage:</strong> <span id="run-stage">-</span></div>
+        </div>
+      </section>
+
+      <section class="panel script" style="--delay: 0.12s">
+        <div class="panel-header">
+          <h2>Script Editor</h2>
+          <span class="panel-tag">Step 2</span>
+        </div>
+        <label class="field">
+          <span>Script</span>
+          <textarea id="script" rows="14" placeholder="Generated script will appear here. You can edit directly."></textarea>
+        </label>
+        <label class="field">
+          <span>Revision feedback</span>
+          <input id="script-feedback" type="text" placeholder="Tighten the explanation of the core mechanism" />
+        </label>
+        <div class="button-row">
+          <button id="save-script">Save script</button>
+          <button id="validate-script" class="ghost">Validate</button>
+          <button id="revise-script" class="ghost">Revise</button>
+          <button id="polish-script" class="ghost">Polish</button>
+        </div>
+        <div class="ai-output">
+          <div class="ai-header">
+            <h3>AI Output</h3>
+            <button id="apply-ai" class="ghost" disabled>Use this script</button>
+          </div>
+          <pre id="ai-output" class="code-block">No AI output yet.</pre>
+        </div>
+        <div class="divider"></div>
+        <div class="button-row">
+          <button id="continue-run" class="primary" disabled>Continue to images and voice</button>
+        </div>
+      </section>
+
+      <section class="panel" style="--delay: 0.18s">
+        <div class="panel-header">
+          <h2>Activity</h2>
+          <span class="panel-tag">Live</span>
+        </div>
+        <div class="logs" id="logs"></div>
+      </section>
+
+      <section class="panel" style="--delay: 0.22s">
+        <div class="panel-header">
+          <h2>AI Tasks</h2>
+          <span class="panel-tag">Parallel</span>
+        </div>
+        <div class="tasks" id="tasks"></div>
+      </section>
+
+      <section class="panel" style="--delay: 0.26s">
+        <div class="panel-header">
+          <h2>Outputs</h2>
+          <span class="panel-tag">Final</span>
+        </div>
+        <div class="outputs" id="outputs">
+          <div class="muted">Outputs will appear after the run completes.</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

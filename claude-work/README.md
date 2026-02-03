@@ -162,6 +162,24 @@ source .venv/bin/activate
 python -m src.main "photosynthesis in plants"
 ```
 
+### Web UI (Optional)
+
+Run the local UI server from the `claude-work` directory:
+
+```bash
+source .venv/bin/activate
+python -m src.ui_server
+```
+
+Open in your browser:
+
+```
+http://127.0.0.1:8787
+```
+
+The UI pauses after script generation so you can edit, validate, and iterate with AI.
+Click "Continue to images and voice" to finish the workflow.
+
 ### One-off Node Tests (Debug/Validation)
 
 These run each node in isolation and persist state to `output/one_off_state.json`.

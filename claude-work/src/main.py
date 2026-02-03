@@ -66,14 +66,14 @@ async def _outline_flow(
 
     while True:
         print("\n" + "-" * 60)
-        print("Outline draft:")
+        print("Plan draft:")
         print(outline)
         print("-" * 60)
 
         if auto_accept:
             return outline
 
-        print("Outline options: [a]ccept, [e]dit, [r]egenerate, [m]anual, [q]uit")
+        print("Plan options: [a]ccept, [e]dit, [r]egenerate, [m]anual, [q]uit")
         choice = input("Choice (a/e/r/m/q or type feedback): ").strip()
 
         if choice == "" or choice.lower() in ("a", "accept"):
@@ -92,7 +92,7 @@ async def _outline_flow(
             )
             continue
         if choice.lower() in ("m", "manual"):
-            manual = _read_multiline("Paste a replacement outline:")
+            manual = _read_multiline("Paste a replacement plan:")
             if manual:
                 outline = manual
             continue
@@ -124,7 +124,7 @@ async def main_async(topic: str = None, skip_outline: bool = False):
 
     print("=" * 60)
     print("  Educational Video Content Generator")
-    print("  Powered by LangGraph + GPT-5.2 + Tavily")
+    print("  Powered by LangGraph + GPT-5.2 + OpenAI Web Search + Tavily (images)")
     print("=" * 60)
 
     # Load configuration
@@ -152,11 +152,11 @@ async def main_async(topic: str = None, skip_outline: bool = False):
     print(f"🖼️  Images target: {config.images_min_total}+ images")
     print(f"🤖 Model: {config.model_name}")
 
-    # Optional outline flow
+    # Optional plan flow
     script_outline = ""
     if not skip_outline:
         try:
-            print("\nGenerating a rough outline...")
+            print("\nGenerating a focused plan...")
             outline_client = OpenAIClient(
                 api_key=config.openai_api_key,
                 model=config.model_name,
@@ -170,11 +170,11 @@ async def main_async(topic: str = None, skip_outline: bool = False):
                 max_words=config.script_max_words
             )
             if script_outline:
-                print("Outline accepted. Continuing the workflow...\n")
+                print("Plan accepted. Continuing the workflow...\n")
         except Exception as e:
-            print(f"\n❌ Outline generation failed: {e}")
+            print(f"\n❌ Plan generation failed: {e}")
             if sys.stdin.isatty():
-                proceed = input("Continue without an outline? [y/N]: ").strip().lower()
+                proceed = input("Continue without a plan? [y/N]: ").strip().lower()
                 if proceed not in ("y", "yes"):
                     sys.exit(1)
             else:

@@ -1,14 +1,14 @@
 # Educational Video Content Generator
 
-An end-to-end LLM-driven system for generating educational video content using **LangGraph**, **GPT-5.2**, and **Tavily**. Generates scripts, collects relevant images, and synthesizes voice narration—all automatically from a simple topic prompt.
+An end-to-end LLM-driven system for generating educational video content using **LangGraph**, **GPT-5.2**, OpenAI **web search**, and **Tavily (images)**. Generates scripts, collects relevant images, and synthesizes voice narration—all automatically from a simple topic prompt.
 
 ## Features
 
 ✅ **Fully LLM-Driven**: No hardcoded templates or logic—everything generated dynamically
 ✅ **Sequential LangGraph Workflow**: 8 nodes with conditional edges for validation
-✅ **Web Research**: Automatic research using Tavily API
+✅ **Web Research**: Automatic research using OpenAI web search (Responses API)
 ✅ **Script Generation**: 200-500 word educational scripts with automatic validation
-✅ **Image Collection**: Automatic image search and intelligent mapping to script sections
+✅ **Image Collection**: Tavily-powered image search and intelligent mapping to script sections
 ✅ **Voice Synthesis**: High-quality text-to-speech with automatic chunking for long scripts
 ✅ **Rate Limiting**: Built-in concurrency and rate limit controls
 ✅ **Error Recovery**: Retry logic with exponential backoff and checkpointing
@@ -23,7 +23,7 @@ User Topic → Research → Script Generation → Script Parsing → Image Colle
 
 ### Workflow Nodes
 
-1. **Research**: Uses LLM to generate search queries, executes Tavily searches
+1. **Research**: Uses LLM to generate search queries, executes OpenAI web search
 2. **Script Generation**: Creates 200-500 word educational script with retry validation
 3. **Script Parsing**: LLM parses script into sections and sentences
 4. **Image Collection**: Generates diverse image queries and searches Tavily
@@ -36,7 +36,7 @@ User Topic → Research → Script Generation → Script Parsing → Image Colle
 
 1. **CLI boot + config**: `src/main.py` loads `.env` config, prints targets, and gets the topic (prompt or CLI arg).
 2. **Optional outline loop**: unless `--no-outline` is used, the bot generates a rough outline, lets you accept/edit/regenerate it, and passes the final outline into the workflow.
-3. **Workflow init**: `run_workflow()` creates a `run_id`, initial state, and output directory, then builds the LangGraph with OpenAI/Tavily clients and optional checkpointing (sqlite if available, otherwise in-memory).
+3. **Workflow init**: `run_workflow()` creates a `run_id`, initial state, and output directory, then builds the LangGraph with the OpenAI client (generation + web search) and Tavily client (images), plus optional checkpointing (sqlite if available, otherwise in-memory).
 4. **State-driven execution**: each node runs async and returns a partial state update (script, sections, images, metadata, retry counters, API call counts) that merges into the shared workflow state.
 5. **Conditional loops**:
    - Script validation checks word count + quality; it allows up to 3 total attempts (2 retries) before continuing anyway.
@@ -49,8 +49,8 @@ User Topic → Research → Script Generation → Script Parsing → Image Colle
 ### Prerequisites
 
 - Python 3.11 or higher
-- OpenAI API key (with access to GPT-5.2 and TTS models)
-- Tavily API key
+- OpenAI API key (with access to GPT-5.2, TTS, and web search)
+- Tavily API key (for image search)
 - ffmpeg (required for pydub audio processing)
 
 ### Quickstart (Recommended)
@@ -106,7 +106,7 @@ cp .env.example .env
 ```env
 # API Keys (REQUIRED)
 OPENAI_API_KEY=sk-your-openai-api-key-here
-TAVILY_API_KEY=tvly-your-tavily-api-key-here
+TAVILY_API_KEY=tvly-your-tavily-api-key-here  # used for image search
 
 # LLM Configuration
 MODEL_NAME=gpt-5.2
@@ -188,7 +188,7 @@ Note: These scripts make real API calls and will incur costs.
 ```
 ============================================================
   Educational Video Content Generator
-  Powered by LangGraph + GPT-5.2 + Tavily
+  Powered by LangGraph + GPT-5.2 + OpenAI Web Search + Tavily (images)
 ============================================================
 
 ✓ Configuration loaded successfully
@@ -361,7 +361,8 @@ Typical cost per generation:
 
 - **OpenAI GPT-5.2**: 15-20 calls × $0.10 = **$1.50-2.00**
 - **OpenAI TTS**: 500 words × $0.015/1K chars = **$0.02**
-- **Tavily**: 20-30 searches × $0.005 = **$0.10-0.15**
+- **OpenAI Web Search**: usage depends on model/tool pricing (see OpenAI pricing)
+- **Tavily (images)**: 20-30 searches × $0.005 = **$0.10-0.15**
 
 **Total: ~$1.65-2.20 per video generation**
 
@@ -497,8 +498,8 @@ pytest tests/ --cov=src --cov-report=html
 
 Built with:
 - [LangGraph](https://github.com/langchain-ai/langgraph) - Workflow orchestration
-- [OpenAI API](https://openai.com/) - GPT-5.2 and TTS
-- [Tavily](https://tavily.com/) - Web search and image discovery
+- [OpenAI API](https://openai.com/) - GPT-5.2, TTS, and web search
+- [Tavily](https://tavily.com/) - Image discovery
 - [pydub](https://github.com/jiaaro/pydub) - Audio processing
 
 ---

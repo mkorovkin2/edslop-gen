@@ -20,7 +20,13 @@ except Exception:
 
 from .models import WorkflowState
 from .agents.research import research_node
-from .agents.script import synthesize_script_node, parse_script_node, validate_script_word_count
+from .agents.script import (
+    synthesize_script_node,
+    parse_script_node,
+    validate_script_word_count,
+    revise_script_with_feedback,
+    polish_script
+)
 from .agents.images import (
     collect_images_node,
     map_images_node,
@@ -147,7 +153,7 @@ def create_workflow(
 
     # Define node functions with dependency injection
     async def research(state: WorkflowState) -> Dict[str, Any]:
-        return await research_node(state, tavily_client, openai_client)
+        return await research_node(state, openai_client)
 
     async def synthesize_script(state: WorkflowState) -> Dict[str, Any]:
         return await synthesize_script_node(
@@ -159,6 +165,117 @@ def create_workflow(
 
     async def parse_script(state: WorkflowState) -> Dict[str, Any]:
         return await parse_script_node(state, openai_client)
+
+    async def review_script(state: WorkflowState) -> Dict[str, Any]:
+        if not state.get("script"):
+            raise ValueError("No script available for review")
+
+        import sys
+        if not sys.stdin.isatty():
+            return {}
+
+        script = state["script"]
+        topic = state["topic"]
+        outline = state.get("script_outline", "").strip()
+        research_summary = state.get("metadata", {}).get("research_synthesis", "")
+        research_data = state.get("research_data", [])
+
+        revision_count = 0
+        openai_calls = 0
+        polish_attempted = False
+        polish_applied = False
+
+        while True:
+            print("\n" + "-" * 60)
+            print("Script draft:")
+            print(script)
+            print("-" * 60)
+            print(f"Word count: {len(script.split())}")
+            choice = input("Script options: [a]ccept, [e]dit, [q]uit (or type feedback): ").strip()
+
+            if choice == "" or choice.lower() in ("a", "accept"):
+                break
+            if choice.lower() in ("q", "quit", "exit"):
+                print("Exiting at your request.")
+                sys.exit(1)
+
+            if choice.lower() in ("e", "edit", "revise"):
+                feedback = input("Describe changes: ").strip()
+                if not feedback:
+                    continue
+            else:
+                feedback = choice
+
+            revised = await revise_script_with_feedback(
+                topic,
+                script,
+                feedback,
+                openai_client,
+                min_words=config.script_min_words,
+                max_words=config.script_max_words,
+                outline=outline,
+                research_summary=research_summary,
+                research_data=research_data
+            )
+            openai_calls += 1
+
+            if not revised:
+                print("LLM returned an empty script. Keeping the previous version.")
+                continue
+
+            script = revised
+            revision_count += 1
+
+        improve = input("Try an additional LLM improvement pass? [y/N]: ").strip().lower()
+        if improve in ("y", "yes"):
+            polish_attempted = True
+            improved = await polish_script(
+                topic,
+                script,
+                openai_client,
+                min_words=config.script_min_words,
+                max_words=config.script_max_words,
+                outline=outline,
+                research_summary=research_summary,
+                research_data=research_data
+            )
+            openai_calls += 1
+
+            if improved:
+                print("\n" + "-" * 60)
+                print("Improved script:")
+                print(improved)
+                print("-" * 60)
+                use_improved = input("Use improved version? [Y/n]: ").strip().lower()
+                if use_improved in ("", "y", "yes"):
+                    script = improved
+                    polish_applied = True
+            else:
+                print("LLM returned an empty script. Keeping the previous version.")
+
+        if revision_count == 0 and openai_calls == 0:
+            return {}
+
+        metadata = {
+            **state.get("metadata", {}),
+            "word_count": len(script.split()),
+            "script_user_revision_count": state.get("metadata", {}).get("script_user_revision_count", 0) + revision_count,
+            "script_user_polish_attempted": polish_attempted,
+            "script_user_polish_applied": polish_applied,
+            "script_user_reviewed_at": datetime.now().isoformat()
+        }
+
+        api_counts = {
+            **state.get("api_call_counts", {})
+        }
+        if openai_calls:
+            api_counts["openai"] = api_counts.get("openai", 0) + openai_calls
+
+        return {
+            "script": script,
+            "metadata": metadata,
+            "api_call_counts": api_counts
+        }
 
     async def collect_images(state: WorkflowState) -> Dict[str, Any]:
         return await collect_images_node(state, tavily_client, openai_client)
@@ -178,6 +295,7 @@ def create_workflow(
     # Add all nodes
     graph.add_node("research", _wrap(research, "research"))
     graph.add_node("synthesize_script", _wrap(synthesize_script, "synthesize_script"))
+    graph.add_node("review_script", _wrap(review_script, "review_script"))
     graph.add_node("parse_script", _wrap(parse_script, "parse_script"))
     graph.add_node("collect_images", _wrap(collect_images, "collect_images"))
     graph.add_node("map_images", _wrap(map_images, "map_images"))
@@ -194,12 +312,13 @@ def create_workflow(
         "synthesize_script",
         validate_script_word_count,
         {
-            "continue": "parse_script",
+            "continue": "review_script",
             "retry": "synthesize_script",
-            "max_retries": "parse_script"  # Continue anyway after max retries
+            "max_retries": "review_script"  # Continue anyway after max retries
         }
     )
 
+    graph.add_edge("review_script", "parse_script")
     graph.add_edge("parse_script", "collect_images")
 
     # Conditional edge for image validation

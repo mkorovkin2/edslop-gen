@@ -142,6 +142,61 @@ class OpenAIClient(RateLimitedClient):
                 )
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(OpenAIError),
+        reraise=True
+    )
+    async def _web_search_impl(
+        self,
+        prompt: str,
+        max_output_tokens: int = 800,
+        temperature: float = 0.2
+    ) -> dict:
+        """
+        Internal implementation of web search with retry via the Responses API.
+
+        Args:
+            prompt: Prompt that instructs the model to use web search
+            max_output_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            Response object as a dict (model_dump)
+
+        Raises:
+            OpenAIError: If API call fails
+        """
+        try:
+            response = await self.client.responses.create(
+                model=self.model,
+                input=prompt,
+                tools=[{"type": "web_search"}],
+                tool_choice={"type": "web_search"},
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+                include=["web_search_call.action.sources"]
+            )
+            if hasattr(response, "model_dump"):
+                return response.model_dump()
+            if isinstance(response, dict):
+                return response
+            if hasattr(response, "to_dict"):
+                return response.to_dict()
+            return {"output_text": getattr(response, "output_text", ""), "output": getattr(response, "output", [])}
+        except OpenAIError:
+            raise
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "model" in error_msg and ("not found" in error_msg or "does not exist" in error_msg):
+                raise ValueError(
+                    f"Model '{self.model}' not available. "
+                    f"Please verify MODEL_NAME in your .env file. "
+                    f"Error: {e}"
+                )
+            raise
+
     async def generate(
         self,
         prompt: str,
@@ -184,6 +239,42 @@ class OpenAIClient(RateLimitedClient):
         return await self._execute_with_limits(
             self._generate_impl(prompt, max_tokens, temperature, system_message)
         )
+
+    async def web_search(
+        self,
+        prompt: str,
+        max_output_tokens: int = 800,
+        temperature: float = 0.2
+    ) -> dict:
+        """
+        Run a web search via the Responses API and return text + sources.
+
+        Args:
+            prompt: Prompt that instructs the model to use web search
+            max_output_tokens: Max tokens for the response
+            temperature: Sampling temperature
+
+        Returns:
+            Dict with keys: text, sources, raw
+        """
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "OpenAI web_search: model=%s prompt_chars=%d max_output_tokens=%d temp=%.2f",
+                self.model,
+                len(prompt),
+                max_output_tokens,
+                temperature
+            )
+        raw = await self._execute_with_limits(
+            self._web_search_impl(prompt, max_output_tokens, temperature)
+        )
+        text = raw.get("output_text") or _extract_output_text(raw) or ""
+        sources = _extract_web_sources(raw)
+        return {
+            "text": text,
+            "sources": sources,
+            "raw": raw
+        }
 
     @retry(
         stop=stop_after_attempt(3),
@@ -296,3 +387,71 @@ class OpenAIClient(RateLimitedClient):
         import asyncio
         tasks = [self.generate_speech(chunk, voice, model, speed) for chunk in text_chunks]
         return await asyncio.gather(*tasks, return_exceptions=False)
+
+
+def _extract_web_sources(raw_response: dict) -> list[dict]:
+    """
+    Extract web search sources from a Responses API payload.
+
+    The structure may include:
+    - web_search_call.action.sources (list of source dicts or URLs)
+    - message content annotations with title/url
+    """
+    sources: list[dict] = []
+    output = raw_response.get("output", []) if isinstance(raw_response, dict) else []
+
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "web_search_call":
+            action = item.get("action", {})
+            for src in action.get("sources", []) or []:
+                if isinstance(src, dict):
+                    sources.append(src)
+                else:
+                    sources.append({"url": str(src)})
+        if item_type == "message":
+            for part in item.get("content", []) or []:
+                if not isinstance(part, dict):
+                    continue
+                for ann in part.get("annotations", []) or []:
+                    if not isinstance(ann, dict):
+                        continue
+                    url = ann.get("url")
+                    title = ann.get("title")
+                    if url:
+                        src = {"url": url}
+                        if title:
+                            src["title"] = title
+                        sources.append(src)
+
+    # De-duplicate by URL while preserving order
+    seen = set()
+    deduped: list[dict] = []
+    for src in sources:
+        url = src.get("url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(src)
+    return deduped
+
+
+def _extract_output_text(raw_response: dict) -> str:
+    """Extract output text from Responses API payload."""
+    output = raw_response.get("output", []) if isinstance(raw_response, dict) else []
+    chunks: list[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "message":
+            continue
+        for part in item.get("content", []) or []:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") in ("output_text", "text"):
+                text = part.get("text")
+                if text:
+                    chunks.append(text)
+    return "\n".join(chunks).strip()

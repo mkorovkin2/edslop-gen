@@ -1,14 +1,49 @@
 """Script generation and parsing agents."""
 
-import os
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from ..utils.openai_client import OpenAIClient
 from ..models import WorkflowState
+from ..prompts import (
+    SCRIPT_EDITOR_SYSTEM_MESSAGE,
+    SCRIPT_RETURN_ONLY_SUFFIX,
+    SCRIPT_WRITER_SYSTEM_MESSAGE,
+    script_base_prompt,
+    script_feedback_prompt,
+    script_judge_prompt,
+    script_parse_prompt,
+    script_polish_prompt,
+    script_revision_prompt
+)
 
 logger = logging.getLogger(__name__)
+
+def _build_sources_xml(research_data: List[Dict[str, Any]]) -> str:
+    """Build XML block for research sources."""
+    if not research_data:
+        return ""
+    return "\n".join([
+        "<source>"
+        f"<title>{r.get('title', 'Source')}</title>"
+        f"<excerpt>{r.get('content', '')}</excerpt>"
+        "</source>"
+        for r in research_data
+    ])
+
+
+def _extract_json(text: str) -> Dict[str, Any] | None:
+    """Strict JSON extraction from model output."""
+    if not text:
+        return None
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if "\n" in cleaned:
+            cleaned = cleaned.split("\n", 1)[1]
+    return json.loads(cleaned)
+
 
 async def synthesize_script_node(
     state: WorkflowState,
@@ -39,7 +74,7 @@ async def synthesize_script_node(
     synthesis = state.get('metadata', {}).get('research_synthesis', '')
     outline = state.get('script_outline', '').strip()
 
-    # Get current retry count
+    # Get current retry count (graph-level attempts)
     retry_count = state.get('retry_counts', {}).get('synthesize_script', 0)
 
     logger.info(
@@ -72,141 +107,66 @@ async def synthesize_script_node(
         "</retry_notice>"
         if retry_count > 0 else ""
     )
-    system_message = (
-        "You are an educational video script writer. "
-        "Sound conversational and direct, but stick to the point. "
-        "Prioritize conveying all required information over flow or polish. "
-        "Transitions can be rough; it is fine to jump between points. "
-        "Use common acronyms as-is (e.g., DARPA) without expanding them. "
-        "Every sentence must introduce a concrete fact, mechanism, or necessary transition; no filler. "
-        "Address the reader directly and follow any provided outline while keeping the output as continuous paragraphs."
+    system_message = SCRIPT_WRITER_SYSTEM_MESSAGE
+
+    base_prompt = script_base_prompt(
+        topic_xml=topic_xml,
+        research_summary_xml=research_summary_xml,
+        outline_xml=outline_xml,
+        sources_xml=sources_xml,
+        word_count_xml=word_count_xml,
+        retry_notice_xml=retry_notice_xml
     )
 
-    # Generate script
-    script_prompt = f"""
-Create an engaging, informative script about the topic in <topic>.
-
-{topic_xml}
-
-{research_summary_xml}
-
-{outline_xml}
-
-<sources>
-{sources_xml}
-</sources>
-
-<requirements>
-  {word_count_xml}
-  <style>Informative, straightforward, and conversational; zero fluff.</style>
-  <language>Clear, accessible language.</language>
-  <addressing>Address the reader directly as if presenting an informative case in a video.</addressing>
-  <content>Include key technical concepts.</content>
-  <outline>Follow the outline if provided, but write continuous paragraphs without headings.</outline>
-  <structure>Paragraphs only; no headings, lists, or other formatting.</structure>
-  <format>Plain paragraph text only.</format>
-  <constraints>
-    No stage directions or speaker notes.
-    Do not include: greetings, scene-setting, motivational lines, rhetorical questions,
-    "in this video" phrasing, or generic wrap-up statements.
-    Avoid repetition and vague claims.
-    Start immediately with a concrete definition or key technical claim.
-    End with a final concrete point (not a summary or wrap-up).
-  </constraints>
-  <tone>Natural, conversational narration.</tone>
-</requirements>
-
-{retry_notice_xml}
-
-Return ONLY the script text, nothing else.
-"""
-
-    script = await openai_client.generate(
-        script_prompt,
-        max_tokens=1500,
-        temperature=0.7,
-        system_message=system_message
-    )
-
-    # Count words
-    word_count = len(script.split())
-    logger.info("Script: generated %d words", word_count)
-
-    # Evaluate script for concision / fluff
+    max_attempts = 3
+    attempts = 0
     quality_passed = False
-    quality_issues = []
-    quality_fluff_examples = []
-    banned_phrases = [
-        "in this video",
-        "today we're going to",
-        "today we are going to",
-        "let's dive in",
-        "let's jump in",
-        "welcome",
-        "stick around",
-        "without further ado",
-        "in conclusion",
-        "to wrap up",
-        "thanks for watching",
-        "that's it for",
-        "as you can see",
-    ]
-    lower_script = script.lower()
-    banned_hits = [p for p in banned_phrases if p in lower_script]
-    if banned_hits:
-        quality_passed = False
-        quality_issues.append(f"banned_phrases: {', '.join(banned_hits)}")
-    if "?" in script:
-        quality_passed = False
-        quality_issues.append("contains_question_marks")
-    try:
-        quality_prompt = f"""
-You are a strict editor. Evaluate the script for concision and zero-fluff requirements.
+    quality_issues: List[str] = []
+    quality_fluff_examples: List[str] = []
+    quality_score = 0.0
+    script = ""
+    last_fix_instructions = ""
 
-Rules for PASS:
-- Every sentence delivers a concrete fact, mechanism, or necessary transition.
-- No filler, generic framing, motivational lines, rhetorical questions, or scene-setting.
-- No repetition or vague claims.
-- Start is immediate and substantive; end is a concrete final point (not a wrap-up).
+    while attempts < max_attempts:
+        attempts += 1
+        if attempts == 1:
+            prompt = base_prompt + SCRIPT_RETURN_ONLY_SUFFIX
+        else:
+            prompt = script_revision_prompt(
+                quality_issues=quality_issues,
+                last_fix_instructions=last_fix_instructions,
+                min_words=min_words,
+                max_words=max_words,
+                script=script
+            )
 
-If any rule is violated, FAIL. If you are unsure, FAIL.
+        script = await openai_client.generate(
+            prompt,
+            max_tokens=1600,
+            temperature=0.6,
+            system_message=system_message
+        )
 
-Return ONLY a JSON object:
-{{
-  "pass": true/false,
-  "issues": ["short issue", ...],
-  "fluff_examples": ["short excerpt", ...]
-}}
+        word_count = len(script.split())
 
-Script:
-<script>
-{script}
-</script>
-"""
         quality_json = await openai_client.generate(
-            quality_prompt,
-            max_tokens=400,
+            script_judge_prompt(min_words, max_words, script),
+            max_tokens=500,
             temperature=0.0
         )
-        quality_data = json.loads(quality_json.strip())
-        if isinstance(quality_data, dict):
-            quality_passed = bool(quality_data.get("pass", False))
-            quality_issues = quality_data.get("issues", []) if isinstance(quality_data.get("issues", []), list) else []
-            quality_fluff_examples = (
-                quality_data.get("fluff_examples", [])
-                if isinstance(quality_data.get("fluff_examples", []), list)
-                else []
-            )
-            if banned_hits:
-                quality_passed = False
-                if not any("banned_phrases" in str(item) for item in quality_issues):
-                    quality_issues.append(f"banned_phrases: {', '.join(banned_hits)}")
-            if "?" in script and "contains_question_marks" not in quality_issues:
-                quality_issues.append("contains_question_marks")
-    except Exception as e:
-        logger.warning("Script: quality eval failed, treating as not passed. Error: %s", e)
-        quality_passed = False
-        quality_issues = ["quality_eval_failed"]
+        quality_data = _extract_json(quality_json)
+        if not isinstance(quality_data, dict):
+            raise ValueError("Script: quality eval returned invalid JSON")
+
+        quality_passed = bool(quality_data.get("pass", False))
+        quality_issues = quality_data.get("issues", []) if isinstance(quality_data.get("issues", []), list) else []
+        last_fix_instructions = str(quality_data.get("fix_instructions", "")).strip()
+        quality_score = float(quality_data.get("quality_score", 0.0) or 0.0)
+
+        if quality_passed:
+            logger.info("Script: quality pass on attempt %d (%d words)", attempts, word_count)
+            break
+        logger.info("Script: quality fail on attempt %d (%d words); retrying", attempts, word_count)
 
     # Update state
     return {
@@ -214,11 +174,14 @@ Script:
         "metadata": {
             **state.get("metadata", {}),
             "script_generated_at": datetime.now().isoformat(),
-            "word_count": word_count,
+            "word_count": len(script.split()),
             "script_retry_count": retry_count,
             "script_quality_passed": quality_passed,
             "script_quality_issues": quality_issues,
             "script_quality_fluff_examples": quality_fluff_examples,
+            "script_quality_score": quality_score,
+            "script_quality_attempts": attempts,
+            "script_quality_fix_instructions": last_fix_instructions,
             "script_quality_checked_at": datetime.now().isoformat()
         },
         "retry_counts": {
@@ -227,7 +190,7 @@ Script:
         },
         "api_call_counts": {
             **state.get("api_call_counts", {}),
-            "openai": state.get("api_call_counts", {}).get("openai", 0) + 2
+            "openai": state.get("api_call_counts", {}).get("openai", 0) + (attempts * 2)
         }
     }
 
@@ -253,34 +216,7 @@ async def parse_script_node(
     script = state['script']
     outline = state.get('script_outline', '').strip()
 
-    outline_block = f"\nOutline (for guidance):\n{outline}\n" if outline else ""
-    parse_prompt = f"""
-Parse the following educational script into logical sections.
-For each section, identify:
-1. A descriptive title (if the section has one)
-2. The full text of the section
-3. Individual sentences within that section
-{outline_block}
-If an outline is provided, use it to guide section boundaries and titles where it fits the script.
-
-Return your response as a JSON array of sections like this:
-[
-  {{
-    "section_id": "section_1",
-    "title": "Introduction to Topic",
-    "text": "Full section text here...",
-    "sentences": ["First sentence.", "Second sentence.", "Third sentence."]
-  }},
-  ...
-]
-
-Script:
-<script>
-{script}
-</script>
-
-Return ONLY the JSON array, no other text.
-"""
+    parse_prompt = script_parse_prompt(script, outline)
 
     logger.info("Script: parsing into sections")
     sections_json = await openai_client.generate(
@@ -342,9 +278,81 @@ Return ONLY the JSON array, no other text.
     }
 
 
+async def revise_script_with_feedback(
+    topic: str,
+    script: str,
+    feedback: str,
+    openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int,
+    outline: str = "",
+    research_summary: str = "",
+    research_data: List[Dict[str, Any]] | None = None
+) -> str:
+    """
+    Revise a script based on user feedback while preserving constraints.
+    """
+    sources_xml = _build_sources_xml(research_data or [])
+    outline_xml = f"<outline>{outline}</outline>" if outline else ""
+    research_summary_xml = f"<research_summary>{research_summary}</research_summary>" if research_summary else ""
+    word_count_xml = f"<word_count><min>{min_words}</min><max>{max_words}</max></word_count>"
+
+    prompt = script_feedback_prompt(
+        topic=topic,
+        feedback=feedback,
+        script=script,
+        research_summary_xml=research_summary_xml,
+        outline_xml=outline_xml,
+        sources_xml=sources_xml,
+        word_count_xml=word_count_xml
+    )
+    revised = await openai_client.generate(
+        prompt,
+        max_tokens=1600,
+        temperature=0.5,
+        system_message=SCRIPT_EDITOR_SYSTEM_MESSAGE
+    )
+    return revised.strip()
+
+
+async def polish_script(
+    topic: str,
+    script: str,
+    openai_client: OpenAIClient,
+    min_words: int,
+    max_words: int,
+    outline: str = "",
+    research_summary: str = "",
+    research_data: List[Dict[str, Any]] | None = None
+) -> str:
+    """
+    Apply a final improvement pass to a script while preserving constraints.
+    """
+    sources_xml = _build_sources_xml(research_data or [])
+    outline_xml = f"<outline>{outline}</outline>" if outline else ""
+    research_summary_xml = f"<research_summary>{research_summary}</research_summary>" if research_summary else ""
+    word_count_xml = f"<word_count><min>{min_words}</min><max>{max_words}</max></word_count>"
+
+    prompt = script_polish_prompt(
+        topic=topic,
+        script=script,
+        research_summary_xml=research_summary_xml,
+        outline_xml=outline_xml,
+        sources_xml=sources_xml,
+        word_count_xml=word_count_xml
+    )
+    improved = await openai_client.generate(
+        prompt,
+        max_tokens=1600,
+        temperature=0.4,
+        system_message=SCRIPT_EDITOR_SYSTEM_MESSAGE
+    )
+    return improved.strip()
+
+
 def validate_script_word_count(state: WorkflowState) -> str:
     """
-    Conditional edge function to validate script word count and concision.
+    Conditional edge function to validate script quality via LLM judge.
 
     Args:
         state: Current workflow state
@@ -352,27 +360,21 @@ def validate_script_word_count(state: WorkflowState) -> str:
     Returns:
         "continue" if valid, "retry" if invalid (and retries remaining), "max_retries" if exhausted
     """
-    min_words = int(os.getenv('SCRIPT_MIN_WORDS', '200'))
-    max_words = int(os.getenv('SCRIPT_MAX_WORDS', '500'))
-
-    word_count = len(state['script'].split())
     retry_count = state.get('retry_counts', {}).get('synthesize_script', 0)
     quality_passed = bool(state.get("metadata", {}).get("script_quality_passed", False))
 
-    if min_words <= word_count <= max_words and quality_passed:
+    if quality_passed:
         return "continue"
     elif retry_count >= 3:
         logger.warning(
-            "Script: validation failed (words=%d, quality=%s) after %d retries; continuing anyway.",
-            word_count,
+            "Script: validation failed (quality=%s) after %d retries; continuing anyway.",
             quality_passed,
             retry_count
         )
         return "max_retries"
     else:
         logger.info(
-            "Script: validation failed (words=%d, quality=%s); retrying.",
-            word_count,
+            "Script: validation failed (quality=%s); retrying.",
             quality_passed
         )
         return "retry"

@@ -11,6 +11,11 @@ from pathlib import Path
 from ..utils.tavily_client import TavilyClient
 from ..utils.openai_client import OpenAIClient
 from ..models import WorkflowState
+from ..prompts import (
+    image_filename_prompt,
+    images_mapping_prompt,
+    images_query_generation_prompt
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,28 +50,16 @@ async def collect_images_node(
     )
 
     # Step 1: Batch generate all image search queries using LLM
-    outline_block = f"\nOutline (for context):\n{outline}\n" if outline else ""
-    query_generation_prompt = f"""
-You are helping create an educational video about "{state['topic']}".
-Generate image search queries for the following script sections.
-{outline_block}
-
-For each section, generate {images_per_section} diverse, specific image search queries that will find
-relevant visual aids (diagrams, illustrations, photos, charts).
-
-Script sections:
-{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections], indent=2)}
-
-Return a JSON object mapping section_id to list of queries:
-{{
-  "section_1": ["query 1", "query 2", ...],
-  "section_2": ["query 1", "query 2", ...],
-  ...
-}}
-
-Make queries specific and descriptive (e.g., "quantum computer circuit diagram", "photosynthesis process illustration").
-Return ONLY the JSON object.
-"""
+    sections_payload = json.dumps(
+        [{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections],
+        indent=2
+    )
+    query_generation_prompt = images_query_generation_prompt(
+        topic=state['topic'],
+        outline=outline,
+        images_per_section=images_per_section,
+        sections_payload=sections_payload
+    )
 
     queries_json = await openai_client.generate(
         query_generation_prompt,
@@ -194,29 +187,16 @@ async def map_images_node(
         for i, img in enumerate(images)
     ]
 
-    outline_block = f"\nOutline (for context):\n{outline}\n" if outline else ""
-    mapping_prompt = f"""
-You are creating an educational video about "{state['topic']}".
-Map the most relevant images to each script section.
-{outline_block}
-
-Script sections:
-{json.dumps([{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections], indent=2)}
-
-Available images:
-{chr(10).join(image_descriptions)}
-
-For each section, select 2-4 most relevant images by their index numbers.
-
-Return a JSON object mapping section_id to list of image indices:
-{{
-  "section_1": [0, 5, 12],
-  "section_2": [3, 8, 15, 20],
-  ...
-}}
-
-Return ONLY the JSON object.
-"""
+    sections_payload = json.dumps(
+        [{"section_id": s['section_id'], "title": s.get('title', ''), "text": s['text']} for s in sections],
+        indent=2
+    )
+    mapping_prompt = images_mapping_prompt(
+        topic=state['topic'],
+        outline=outline,
+        sections_payload=sections_payload,
+        image_descriptions=image_descriptions
+    )
 
     mapping_json = await openai_client.generate(
         mapping_prompt,
@@ -302,7 +282,7 @@ async def download_images_node(
                         image_data = await response.read()
 
                         # Generate descriptive filename using LLM
-                        filename_prompt = f"Create a short, descriptive filename (2-4 words, lowercase, hyphens) for an image described as: '{description}'. Return ONLY the filename without extension."
+                        filename_prompt = image_filename_prompt(description)
                         filename_base = await openai_client.generate(filename_prompt, max_tokens=50, temperature=0.3)
                         filename_base = filename_base.strip().replace(' ', '-').replace('_', '-')[:50]
 

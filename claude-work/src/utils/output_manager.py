@@ -79,17 +79,17 @@ class OutputManager:
 
     async def write_outline(self, run_id: str, outline: str):
         """
-        Write outline to outline.md file.
+        Write plan paragraph to outline.md file.
 
         Args:
             run_id: Run identifier
-            outline: Outline content
+        outline: Plan paragraph content
         """
         run_dir = self.get_run_dir(run_id)
         outline_path = run_dir / "outline.md"
 
         async with aiofiles.open(outline_path, 'w', encoding='utf-8') as f:
-            await f.write(f"# Script Outline\n\n")
+            await f.write(f"# Script Plan\n\n")
             await f.write(f"**Generated**: {datetime.now().isoformat()}\n\n")
             await f.write(f"---\n\n")
             await f.write(outline)

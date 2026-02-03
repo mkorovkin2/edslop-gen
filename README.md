@@ -1,6 +1,6 @@
 # edslop-gen
 
-Educational video content generator. This repo contains the full implementation under `claude-work/`, including a LangGraph-based workflow that researches a topic, writes a script, finds images, and generates narration audio.
+Educational video content generator. This repo contains the full implementation under `claude-work/`, including a LangGraph-based workflow that researches a topic with OpenAI web search, writes a script, finds images via Tavily, and generates narration audio.
 
 ## What's inside
 

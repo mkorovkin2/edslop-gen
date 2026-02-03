@@ -1,139 +1,226 @@
-"""Research agent using Tavily for web search."""
+"""Research agent using OpenAI web search for sources."""
 
+import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
-from ..utils.tavily_client import TavilyClient
+
 from ..utils.openai_client import OpenAIClient
 from ..models import WorkflowState
+from ..prompts import (
+    research_query_generation_prompt,
+    research_search_prompt,
+    research_synthesis_judge_prompt,
+    research_synthesis_prompt,
+    research_synthesis_rewrite_prompt
+)
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_json(text: str) -> Dict[str, Any] | None:
+    """Best-effort JSON extraction from model output."""
+    if not text:
+        return None
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Strip fenced blocks if present
+        cleaned = cleaned.strip("`")
+        if "\n" in cleaned:
+            cleaned = cleaned.split("\n", 1)[1]
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    # Try to extract JSON object substring
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(cleaned[start:end + 1])
+        except Exception:
+            return None
+    return None
+
+
+async def _synthesize_research(
+    topic: str,
+    outline: str,
+    query_summaries: List[Dict[str, Any]],
+    openai_client: OpenAIClient
+) -> tuple[str, bool, List[str], int]:
+    """Synthesize research into a concise summary with a strict QA loop."""
+    summaries_text = "\n\n".join([
+        f"Query: {item.get('query')}\nSummary:\n{item.get('summary', '')}"
+        for item in query_summaries
+    ])
+    synthesis_prompt = research_synthesis_prompt(topic, outline, summaries_text)
+
+    attempts = 0
+    passed = False
+    issues: List[str] = []
+    summary_text = ""
+    while attempts < 2:
+        attempts += 1
+        summary_text = await openai_client.generate(
+            synthesis_prompt,
+            max_tokens=800,
+            temperature=0.4
+        )
+        wc = len(summary_text.split())
+        issues = []
+
+        quality_json = await openai_client.generate(
+            research_synthesis_judge_prompt(summary_text),
+            max_tokens=400,
+            temperature=0.0
+        )
+        quality_data = _extract_json(quality_json) or {}
+        passed = bool(quality_data.get("pass", False))
+        issues = quality_data.get("issues", []) if isinstance(quality_data.get("issues", []), list) else []
+        if not (200 <= wc <= 300):
+            passed = False
+            if "word_count_out_of_range" not in issues:
+                issues.append("word_count_out_of_range")
+
+        if passed:
+            break
+
+        fix_instructions = quality_data.get("fix_instructions", "")
+        synthesis_prompt = research_synthesis_rewrite_prompt(
+            topic,
+            outline,
+            summaries_text,
+            issues,
+            fix_instructions
+        )
+
+    return summary_text, passed, issues, attempts
+
+
 async def research_node(
     state: WorkflowState,
-    tavily_client: TavilyClient,
     openai_client: OpenAIClient
 ) -> Dict[str, Any]:
     """
-    Research node: Perform web research on the topic using Tavily.
+    Research node: Perform web research on the topic using OpenAI web search.
 
-    Uses LLM to generate diverse search queries, then synthesizes
-    research results into structured data.
-
-    Args:
-        state: Current workflow state
-        tavily_client: Tavily API client
-        openai_client: OpenAI API client
-
-    Returns:
-        Dict with updated research_data, metadata, and api_call_counts
+    Uses the LLM to generate search queries, calls the web search tool for each query,
+    and synthesizes results into structured summary data for downstream use.
     """
     topic = state['topic']
     outline = state.get('script_outline', '').strip()
 
-    # Step 1: Use LLM to generate 3-5 diverse search queries
     logger.info("Research: generating search queries for topic=%s", topic)
-    outline_block = f"\nOutline (for coverage guidance):\n{outline}\n" if outline else ""
-    query_generation_prompt = f"""
-You are a research assistant. Given a technical topic, generate 3-5 diverse search queries
-that will help gather comprehensive information about this topic.
-
-Topic: {topic}
-{outline_block}
-
-Generate queries that cover:
-1. Basic concepts and definitions
-2. Technical details and mechanisms
-3. Real-world applications
-4. Recent developments or research
-5. Related concepts or comparisons
-
-If an outline is provided, ensure queries collectively cover each section and fill any gaps.
-
-Return ONLY a JSON array of query strings, like:
-["query 1", "query 2", "query 3"]
-"""
+    query_generation_prompt = research_query_generation_prompt(topic, outline)
 
     queries_json = await openai_client.generate(
         query_generation_prompt,
-        max_tokens=500,
-        temperature=0.7
+        max_tokens=400,
+        temperature=0.6
     )
 
-    # Parse queries from JSON
-    import json
     try:
         queries = json.loads(queries_json.strip())
         if not isinstance(queries, list) or len(queries) == 0:
             raise ValueError("Invalid queries format")
     except Exception as e:
         logger.warning("Research: failed to parse queries JSON, using fallback. Error: %s", e)
-        # Fallback: use topic directly
         queries = [topic, f"{topic} explained", f"{topic} applications"]
 
     logger.info("Research: using %d queries", len(queries))
-    logger.debug("Research queries: %s", queries)
 
-    # Step 2: Execute Tavily searches for each query
-    all_results = []
+    all_sources: List[Dict[str, Any]] = []
+    query_summaries: List[Dict[str, Any]] = []
+    openai_calls = 1  # query generation
+
     for query in queries:
-        try:
-            logger.debug("Research: searching query=%r", query)
-            results = await tavily_client.search(query, search_depth="advanced")
-            logger.debug("Research: %d results for query=%r", len(results), query)
-            all_results.extend(results)
-        except Exception as e:
-            logger.warning("Research: search failed for %r: %s", query, e)
-            continue
+        logger.debug("Research: web search query=%r", query)
+        search_prompt = research_search_prompt(query)
+        search_result = await openai_client.web_search(
+            search_prompt,
+            max_output_tokens=900,
+            temperature=0.2
+        )
+        openai_calls += 1
 
-    if len(all_results) < 2:
-        logger.error("Research: insufficient sources collected (%d)", len(all_results))
+        parsed = _extract_json(search_result.get("text", ""))
+        summary = ""
+        sources = []
+        if parsed and isinstance(parsed, dict):
+            summary = parsed.get("summary", "") if isinstance(parsed.get("summary", ""), str) else ""
+            sources = parsed.get("sources", []) if isinstance(parsed.get("sources", []), list) else []
+
+        if not sources:
+            sources = search_result.get("sources", [])
+
+        if not summary:
+            summary = search_result.get("text", "").strip()
+
+        query_summaries.append({
+            "query": query,
+            "summary": summary,
+            "source_count": len(sources)
+        })
+
+        for src in sources:
+            if isinstance(src, dict):
+                all_sources.append({
+                    "title": src.get("title", "Source"),
+                    "url": src.get("url", ""),
+                    "content": src.get("snippet") or src.get("summary") or summary,
+                    "query": query
+                })
+            else:
+                all_sources.append({
+                    "title": "Source",
+                    "url": str(src),
+                    "content": summary,
+                    "query": query
+                })
+
+    # De-duplicate by URL
+    deduped_sources: List[Dict[str, Any]] = []
+    seen_urls = set()
+    for src in all_sources:
+        url = src.get("url")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        deduped_sources.append(src)
+
+    if len(deduped_sources) < 2:
+        logger.error("Research: insufficient sources collected (%d)", len(deduped_sources))
         raise ValueError(
             f"Insufficient research data collected. "
-            f"Only {len(all_results)} sources found (need at least 2)."
+            f"Only {len(deduped_sources)} sources found (need at least 2)."
         )
 
-    logger.info("Research: collected %d sources", len(all_results))
+    logger.info("Research: collected %d sources", len(deduped_sources))
 
-    # Step 3: Use LLM to synthesize research into structured summary
-    research_text = "\n\n".join([
-        f"Source {i+1} - {r.get('title', 'Untitled')}:\n{r.get('content', '')}"
-        for i, r in enumerate(all_results)
-    ])
-
-    synthesis_prompt = f"""
-Synthesize the following research results about "{topic}" into a structured summary.
-Focus on key concepts, technical details, and important facts that would be useful
-for creating an educational video script.
-{"If an outline is provided below, organize the summary to cover each section in order." if outline else ""}
-
-{outline_block}
-{research_text}
-
-Return a concise summary (200-300 words) covering the most important points.
-"""
-
-    logger.info("Research: synthesizing summary from %d sources", len(all_results))
-    synthesis = await openai_client.generate(
-        synthesis_prompt,
-        max_tokens=800,
-        temperature=0.5
+    synthesis, synthesis_passed, synthesis_issues, synthesis_attempts = await _synthesize_research(
+        topic,
+        outline,
+        query_summaries,
+        openai_client
     )
-    logger.debug("Research: synthesis length=%d chars", len(synthesis))
+    openai_calls += 2 * synthesis_attempts  # synthesis + judge per attempt
 
-    # Step 4: Update state
     return {
-        "research_data": all_results,
+        "research_data": deduped_sources,
         "metadata": {
             **state.get("metadata", {}),
             "research_completed_at": datetime.now().isoformat(),
-            "research_source_count": len(all_results),
+            "research_source_count": len(deduped_sources),
             "research_queries_used": queries,
-            "research_synthesis": synthesis
+            "research_synthesis": synthesis,
+            "research_synthesis_passed": synthesis_passed,
+            "research_synthesis_issues": synthesis_issues,
+            "research_synthesis_attempts": synthesis_attempts
         },
         "api_call_counts": {
             **state.get("api_call_counts", {}),
-            "tavily": state.get("api_call_counts", {}).get("tavily", 0) + len(queries),
-            "openai": state.get("api_call_counts", {}).get("openai", 0) + 2  # 2 LLM calls
+            "openai": state.get("api_call_counts", {}).get("openai", 0) + openai_calls
         }
     }

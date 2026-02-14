@@ -19,6 +19,11 @@ def generate_variants(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: generate_variants ===")
 
+    # Skip if we're past this phase (scripts already approved)
+    if state.get("approved_scripts"):
+        log.info("Scripts already approved, skipping variant generation")
+        return {}
+
     topic = state["topic"]
     feedback = state.get("variant_feedback")
     previous_variants = state.get("variants", [])

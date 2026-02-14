@@ -17,6 +17,11 @@ def user_select_variants(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: user_select_variants ===")
 
+    # Skip if we're past this phase (scripts already approved)
+    if state.get("approved_scripts"):
+        log.info("Scripts already approved, skipping variant selection")
+        return {}
+
     variants = state["variants"]
 
     # Display variants to user

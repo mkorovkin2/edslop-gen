@@ -19,6 +19,11 @@ def generate_scripts(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: generate_scripts ===")
 
+    # Skip if we're past this phase (audio already generated)
+    if state.get("audio_paths"):
+        log.info("Audio already generated, skipping script generation")
+        return {}
+
     topic = state["topic"]
     variants = state["variants"]
     selected_ids = state["selected_variant_ids"]

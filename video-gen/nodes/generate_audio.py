@@ -17,6 +17,11 @@ def generate_audio(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: generate_audio ===")
 
+    # Skip if audio already generated
+    if state.get("audio_paths"):
+        log.info("Audio already generated, skipping")
+        return {}
+
     approved = state["approved_scripts"]
     voice_id = os.getenv("ELEVENLABS_VOICE_ID")
     model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")

@@ -19,6 +19,11 @@ def judge_scripts(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: judge_scripts ===")
 
+    # Skip if we're past this phase (audio already generated)
+    if state.get("audio_paths"):
+        log.info("Audio already generated, skipping script judging")
+        return {}
+
     topic = state["topic"]
     scripts = state["scripts"]
     iteration = state.get("judge_iteration", 0) + 1

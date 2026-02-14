@@ -1,12 +1,52 @@
 """LLM client factory — returns OpenAI or Anthropic chat model based on env config."""
 
+import logging
 import os
+import time
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 OPENAI_MODEL = "gpt-5.2"
+
+log = logging.getLogger("video_agent.llm")
+
+
+def retry_with_backoff(fn, max_retries=5, base_delay=2.0, max_delay=120.0):
+    """Retry a callable with exponential backoff on rate limit (429) and server (5xx) errors.
+
+    Works with both OpenAI and Anthropic SDK errors.
+    """
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            status = getattr(e, "status_code", None) or getattr(e, "status", None)
+            err_str = str(e).lower()
+            is_rate_limit = status == 429 or "rate" in err_str and "limit" in err_str
+            is_server_error = isinstance(status, int) and 500 <= status < 600
+
+            if (is_rate_limit or is_server_error) and attempt < max_retries - 1:
+                # Use Retry-After header if available
+                retry_after = getattr(e, "headers", {})
+                if hasattr(retry_after, "get"):
+                    retry_after = retry_after.get("retry-after")
+                else:
+                    retry_after = None
+
+                if retry_after:
+                    delay = float(retry_after)
+                else:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+
+                log.warning(
+                    f"Rate limit / server error (attempt {attempt + 1}/{max_retries}). "
+                    f"Retrying in {delay:.1f}s... Error: {e}"
+                )
+                time.sleep(delay)
+            else:
+                raise
 
 
 def get_llm():
@@ -60,6 +100,14 @@ def get_judge_llm():
         )
 
 
+def get_sora_client():
+    """Return an OpenAI client configured for Sora video generation API."""
+    from openai import OpenAI
+
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return client
+
+
 def get_search_llm():
     """Return an OpenAI Responses API client with web_search forced on.
 
@@ -86,15 +134,18 @@ def invoke_with_web_search(system_prompt: str, user_prompt: str, temperature: fl
     """
     client = get_search_llm()
 
-    response = client.responses.create(
-        model=OPENAI_MODEL,
-        temperature=temperature,
-        tools=[{"type": "web_search_preview"}],
-        input=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+    def _call():
+        return client.responses.create(
+            model=OPENAI_MODEL,
+            temperature=temperature,
+            tools=[{"type": "web_search_preview"}],
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+    response = retry_with_backoff(_call)
 
     # Extract text from the response output items
     text_parts = []

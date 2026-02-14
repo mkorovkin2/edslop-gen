@@ -14,4 +14,10 @@ class AgentState(TypedDict):
     judge_iteration: int  # Track regen attempts per cycle
     approved_scripts: list[dict]  # User-approved final scripts
     audio_paths: list[str]  # Paths to generated .mp3 files
+    visual_scripts: list[dict]  # [{variant_id, segments: [{segment_id, time_range, visual_description, mood, camera}]}]
+    visual_judge_results: list[dict]  # [{variant_id, passed, scores, feedback}]
+    visual_judge_iteration: int  # Track visual judge regen attempts (cap at 5)
+    approved_visual_scripts: list[dict]  # User-approved visual scripts
+    video_breakdown: list[dict]  # [{variant_id, segments: [{segment_id, sora_prompt, duration, size, ...}]}]
+    video_paths: list[str]  # Paths to generated .mp4 part files
     current_step: str  # For crash recovery

@@ -17,6 +17,11 @@ def user_approve_scripts(state: AgentState) -> dict:
     log = logging.getLogger(f"video_agent.{sid}")
     log.info("=== NODE: user_approve_scripts ===")
 
+    # Skip if we're past this phase (audio already generated)
+    if state.get("audio_paths"):
+        log.info("Audio already generated, skipping script approval")
+        return {}
+
     scripts = state["scripts"]
 
     # Display scripts to user

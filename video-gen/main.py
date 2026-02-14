@@ -26,6 +26,12 @@ def create_initial_state(session_id: str) -> dict:
         "judge_iteration": 0,
         "approved_scripts": [],
         "audio_paths": [],
+        "visual_scripts": [],
+        "visual_judge_results": [],
+        "visual_judge_iteration": 0,
+        "approved_visual_scripts": [],
+        "video_breakdown": [],
+        "video_paths": [],
         "current_step": "start",
     }
 
@@ -41,7 +47,15 @@ STEP_TO_NODE = {
     "judge_scripts": "generate_scripts",  # If crashed during judging, re-judge
     "user_approve_scripts_done": "generate_audio",
     "user_approve_scripts_revise": "generate_scripts",
-    "generate_audio": "generate_audio",  # Retry audio gen
+    "generate_audio": "generate_visual_scripts",
+    "generate_visual_scripts": "judge_visual_scripts",
+    "judge_visual_scripts": "generate_visual_scripts",  # Re-judge → regen
+    "user_approve_visuals_done": "generate_video_breakdown",
+    "user_approve_visuals_revise": "generate_visual_scripts",
+    "generate_video_breakdown": "user_approve_breakdown",
+    "user_approve_breakdown_done": "generate_videos",
+    "user_approve_breakdown_revise": "generate_video_breakdown",
+    "generate_videos": "generate_videos",  # Retry on crash
 }
 
 
